@@ -587,9 +587,9 @@ INDEX_HTML = """
     .card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:var(--pad); box-shadow:var(--sh) }
     h3 { margin:0 0 10px }
     label { display:block; font-size:12px; color:var(--muted); margin:8px 0 6px }
-    input, select, textarea { width:100%; display:block; padding:12px; border-radius:10px; border:1px solid var(--border); background:#0f0f0f; color:var(--text); outline:none }
+    input, select, textarea { width:100%; display:block; padding:12px; border-radius:10px; border:1px solid var(--border); background:#0f0f0f; color:#f3f4f6; outline:none }
     input:focus, select:focus, textarea:focus { border-color:var(--accent); box-shadow:0 0 0 2px rgba(255,50,50,.45) }
-    button { padding:10px 14px; border:1px solid var(--border); background:#0f0f0f; color:var(--text); border-radius:10px; cursor:pointer }
+    button { padding:10px 14px; border:1px solid var(--border); background:#0f0f0f; color:#f3f4f6; border-radius:10px; cursor:pointer }
     button.primary { background:var(--accent); border-color:var(--accent); color:#fff }
     button.primary:hover { background:var(--accent-600) }
     a { color:#ff7b7b; text-decoration:none }
@@ -602,7 +602,7 @@ INDEX_HTML = """
     table { width:100%; border-collapse:collapse; background:#0f0f0f; border:1px solid var(--border); border-radius:var(--r); overflow:hidden }
     thead th { background:#1f1f1f; color:#ff9c9c }
     th, td { padding:12px; border-bottom:1px solid var(--border); text-align:left; font-size:14px }
-    .actions { display:flex; gap:8px }
+    .actions { display:flex; gap:8px; flex-wrap:wrap }
     .muted { color:var(--muted) }
     .toast { position:fixed; right:16px; bottom:16px; background:var(--accent); color:#fff; padding:10px 14px; border-radius:10px; display:none; box-shadow:var(--sh) }
     canvas { background:radial-gradient(ellipse at top,#151515,#0d0d0d); border:1px solid var(--border); border-radius:12px; padding:8px }
@@ -723,7 +723,7 @@ INDEX_HTML = """
       <div style="margin-top:12px; overflow:auto;">
         <table>
           <thead><tr><th></th><th>Rodzaj</th><th>Data</th><th>Przebieg</th><th>Mail</th><th>Dni wcześniej</th><th>Pojazd</th><th></th></tr></thead>
-        <tbody id="r_tbody"></tbody>
+          <tbody id="r_tbody"></tbody>
         </table>
       </div>
     </section>
@@ -756,98 +756,157 @@ INDEX_HTML = """
   <div class="toast" id="toast">✓ Zapisano</div>
 
   <script>
-    // Stan i utils
-    let currentVehicleId = null, editEntryId = null; window.loggedIn = false;
-    function toast(msg){ const t = document.getElementById('toast'); t.textContent = msg || '✓ Zapisano'; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 1600); }
+    const $ = (id) => document.getElementById(id);
+    window.loggedIn = false;
+    window._entriesCache = [];
 
-    // Konto
-    async function register(){
+    // ====== TOAST ======
+    window.toast = function(msg){
+      const t = $('toast');
+      t.textContent = msg || '✓ Zapisano';
+      t.style.display = 'block';
+      setTimeout(() => t.style.display = 'none', 1600);
+    };
+
+    // ====== KONTO ======
+    window.register = async function(){
       try{
-        const email = regEmail.value || '', name = regName.value || '', pass = regPass.value || '';
+        const email = $('regEmail').value || '';
+        const name  = $('regName').value || '';
+        const pass  = $('regPass').value || '';
         if(!email || !name || !pass) return alert('Uzupełnij e-mail, imię i hasło.');
-        await api('/api/register', { method:'POST', body: JSON.stringify({ email, name, password: pass }), headers:{'Content-Type':'application/json'} });
+        await api('/api/register', {
+          method:'POST',
+          body: JSON.stringify({ email, name, password: pass }),
+          headers:{'Content-Type':'application/json'}
+        });
         toast('Konto utworzone. Zaloguj się.');
       }catch(e){ alert('Rejestracja nieudana: ' + (e.message||'')); }
-    }
-    async function login(){
-      try{
-        const res = await api('/api/login', { method:'POST', body: JSON.stringify({ email: regEmail.value, password: regPass.value }), headers:{'Content-Type':'application/json'} });
-        userName.textContent = res.user.name;
-        window.loggedIn = true;
-        authBox.style.display = 'none';
-        await loadVehicles(); await loadReminderVehicles(); await refreshEntries(); await loadStats(); await loadReminders();
-      }catch(e){ alert('Błędne dane logowania.'); }
-    }
-    async function logout(){ try{ await api('/api/logout', {method:'POST'}) }catch(e){} window.loggedIn = false; location.reload(); }
+    };
 
-    // Pojazdy
-    async function loadVehicles(){
+    window.login = async function(){
+      try{
+        const res = await api('/api/login', {
+          method:'POST',
+          body: JSON.stringify({ email: $('regEmail').value, password: $('regPass').value }),
+          headers:{'Content-Type':'application/json'}
+        });
+        $('userName').textContent = res.user.name;
+        window.loggedIn = true;
+        $('authBox').style.display = 'none';
+        await window.loadVehicles(); await window.loadReminderVehicles();
+        await window.refreshEntries(); await window.loadStats(); await window.loadReminders();
+      }catch(e){ alert('Błędne dane logowania.'); }
+    };
+
+    window.logout = async function(){
+      try{ await api('/api/logout', {method:'POST'}); }catch(e){}
+      window.loggedIn = false; location.reload();
+    };
+
+    // ====== POJAZDY ======
+    window.loadVehicles = async function(){
       const list = await api('/api/vehicles');
-      const sel = vehicleSelect, rsel = document.getElementById('r_vehicle');
-      sel.innerHTML = ''; if(rsel) rsel.innerHTML = '<option value="">—</option>';
+      const sel = $('vehicleSelect'), rsel = $('r_vehicle');
+      sel.innerHTML = '';
+      if(rsel) rsel.innerHTML = '<option value="">—</option>';
       list.forEach(v => {
         const label = (v.make + ' ' + v.model + ' ' + (v.year||'') + ' ' + (v.reg_plate||'')).trim();
         const o = document.createElement('option'); o.value = v.id; o.textContent = label; sel.appendChild(o);
         if(rsel){ const o2 = document.createElement('option'); o2.value = v.id; o2.textContent = label; rsel.appendChild(o2); }
       });
-      if(list.length){ currentVehicleId = list[0].id; sel.value = currentVehicleId; }
-    }
-    async function addVehicle(){
+      if(list.length){ sel.value = String(list[0].id); }
+    };
+
+    window.addVehicle = async function(){
       try{
-        const body = { make: make.value, model: model.value, year: parseInt(year.value||0)||null, vin: vin.value, reg_plate: reg_plate.value };
+        const body = {
+          make: $('make').value,
+          model: $('model').value,
+          year: parseInt($('year').value||0)||null,
+          vin: $('vin').value,
+          reg_plate: $('reg_plate').value,
+        };
         await api('/api/vehicles', { method:'POST', body: JSON.stringify(body), headers:{'Content-Type':'application/json'} });
         toast('Dodano pojazd'); await loadVehicles(); await loadStats(); await loadReminders();
       }catch(e){ alert('Błąd dodawania pojazdu'); }
-    }
-    async function deleteSelectedVehicle(){
-      if(!vehicleSelect.value) return alert('Wybierz pojazd');
+    };
+
+    window.deleteSelectedVehicle = async function(){
+      const sel = $('vehicleSelect');
+      if(!sel.value) return alert('Wybierz pojazd');
       if(!confirm('Usunąć wybrany pojazd wraz z wpisami?')) return;
-      await api('/api/vehicles/' + vehicleSelect.value, {method:'DELETE'});
+      await api('/api/vehicles/' + sel.value, {method:'DELETE'});
       toast('Usunięto pojazd');
       await loadVehicles(); await loadStats(); await loadReminders(); await refreshEntries();
-    }
+    };
 
-    // Wpisy
-    async function addEntry(){
-      if(!vehicleSelect.value) return alert('Najpierw dodaj pojazd.');
+    // ====== WPISY ======
+    window.addEntry = async function(){
+      const sel = $('vehicleSelect');
+      if(!sel.value) return alert('Najpierw dodaj pojazd.');
+
       const fd = new FormData();
-      fd.append('vehicle_id', vehicleSelect.value);
-      fd.append('date', date.value);
-      fd.append('mileage', mileage.value);
-      fd.append('service_type', service_type.value);
-      fd.append('description', description.value);
-      fd.append('cost', cost.value);
-      const f = file.files[0]; if (f) fd.append('file', f);
+      fd.append('vehicle_id', sel.value);
+      fd.append('date', $('date').value);
+      fd.append('mileage', $('mileage').value);
+      fd.append('service_type', $('service_type').value);
+      fd.append('description', $('description').value);
+      fd.append('cost', $('cost').value);
+      const f = $('file').files[0];
+      if (f) fd.append('file', f);
 
       try{
-        if(editEntryId){
-          const body = { date: date.value, mileage: mileage.value, service_type: service_type.value, description: description.value, cost: cost.value };
-          await api('/api/entries/' + editEntryId, { method:'PUT', body: JSON.stringify(body), headers:{'Content-Type':'application/json'} });
-          editEntryId = null; document.querySelector('button.primary').textContent = 'Dodaj wpis';
+        if(window.editEntryId){
+          const body = {
+            date: $('date').value,
+            mileage: $('mileage').value,
+            service_type: $('service_type').value,
+            description: $('description').value,
+            cost: $('cost').value
+          };
+          await api('/api/entries/' + window.editEntryId, { method:'PUT', body: JSON.stringify(body), headers:{'Content-Type':'application/json'} });
+          window.editEntryId = null;
+          document.querySelector('button.primary').textContent = 'Dodaj wpis';
         } else {
           await api('/api/entries', { method:'POST', body: fd });
-          file.value = '';
+          $('file').value = '';
         }
         toast('Zapisano'); await refreshEntries();
       }catch(e){ alert('Błąd zapisu wpisu'); }
-    }
-    function editEntry(id, e){
-      editEntryId = id;
-      date.value = e.date || ''; mileage.value = e.mileage || ''; service_type.value = e.service_type || '';
-      description.value = e.description || ''; cost.value = e.cost || '';
+    };
+
+    window.editEntryId = null;
+    window.editEntry = function(id){
+      const e = (window._entriesCache||[]).find(x => String(x.id) === String(id));
+      if(!e) return;
+      window.editEntryId = id;
+      $('date').value = e.date || '';
+      $('mileage').value = e.mileage || '';
+      $('service_type').value = e.service_type || '';
+      $('description').value = e.description || '';
+      $('cost').value = e.cost || '';
       document.querySelector('button.primary').textContent = 'Zapisz zmiany';
       window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-    async function delEntry(id){ if(!confirm('Usunąć wpis?')) return; await api('/api/entries/' + id, {method:'DELETE'}); toast('Usunięto'); refreshEntries(); }
-    async function refreshEntries(){
-      currentVehicleId = vehicleSelect.value || null;
-      const q = search.value || '';
+    };
+
+    window.delEntry = async function(id){
+      if(!confirm('Usunąć wpis?')) return;
+      await api('/api/entries/' + id, {method:'DELETE'});
+      toast('Usunięto'); refreshEntries();
+    };
+
+    window.refreshEntries = async function(){
+      const sel = $('vehicleSelect');
+      const currentVehicleId = sel.value || null;
+      const q = $('search').value || '';
       const params = new URLSearchParams();
       if(currentVehicleId) params.set('vehicle_id', currentVehicleId);
       if(q) params.set('q', q);
       let list = [];
       try{ list = await api('/api/entries?' + params.toString()); } catch(e){ return; }
-      const tb = entriesTbody; tb.innerHTML = '';
+      window._entriesCache = list;
+      const tb = $('entriesTbody'); tb.innerHTML = '';
       list.forEach(e => {
         const tr = document.createElement('tr');
         tr.innerHTML =
@@ -858,19 +917,19 @@ INDEX_HTML = """
           '<td>' + Number(e.cost||0).toLocaleString("pl-PL",{minimumFractionDigits:2, maximumFractionDigits:2}) + '</td>' +
           '<td>' + (e.attachment ? ('<a target=_blank href="/uploads/' + e.attachment + '">plik</a>') : '') + '</td>' +
           '<td class="actions">' +
-            '<button onclick=\'editEntry(' + e.id + ',' + JSON.stringify(e).replace(/`/g,"\\`") + ')\'>Edytuj</button> ' +
-            '<button onclick="delEntry(' + e.id + ')">Usuń</button>' +
+            '<button type="button" onclick="editEntry(' + e.id + ')">Edytuj</button> ' +
+            '<button type="button" onclick="delEntry(' + e.id + ')">Usuń</button>' +
           '</td>';
         tb.appendChild(tr);
       });
       await loadStats();
-    }
+    };
 
-    // Statystyki (linia dzienna)
-    async function loadStats(){
+    // ====== STATYSTYKI ======
+    window.loadStats = async function(){
       try{
         const s = await api('/api/stats');
-        const range = parseInt(document.getElementById('dash_range')?.value || '0', 10);
+        const range = parseInt(($('dash_range')?.value || '0'), 10);
         let byDay = s.by_day || [];
         if(range > 0 && byDay.length > 0){
           const cut = new Date(); cut.setDate(cut.getDate() - range + 1);
@@ -878,7 +937,7 @@ INDEX_HTML = """
         }
         byDay.sort((a,b)=> (a.ymd < b.ymd ? -1 : 1));
         const labels = byDay.map(x => x.ymd), costs = byDay.map(x => Number(x.total_cost||0));
-        const ctx = document.getElementById('chartCost')?.getContext('2d');
+        const ctx = $('chartCost')?.getContext('2d');
         if(ctx){
           if(window._chartCost) window._chartCost.destroy();
           window._chartCost = new Chart(ctx, {
@@ -890,7 +949,7 @@ INDEX_HTML = """
             }
           });
         }
-        const tb = document.getElementById('mileageTbody');
+        const tb = $('mileageTbody');
         if(tb){
           tb.innerHTML = '';
           (s.last_mileage || []).forEach(r => {
@@ -900,13 +959,13 @@ INDEX_HTML = """
           });
         }
       }catch(e){}
-    }
+    };
 
-    // Przypomnienia
-    async function loadReminders(){
+    // ====== PRZYPOMNIENIA ======
+    window.loadReminders = async function(){
       try{
         const list = await api('/api/reminders');
-        const tb = document.getElementById('r_tbody'); if(!tb) return; tb.innerHTML = '';
+        const tb = $('r_tbody'); if(!tb) return; tb.innerHTML = '';
         list.forEach(r => {
           const tr = document.createElement('tr');
           const due = r.is_due ? '🔔' : '';
@@ -914,15 +973,16 @@ INDEX_HTML = """
             '<td>' + due + '</td><td>' + r.title + '</td><td>' + (r.due_date||'') + '</td><td>' + (r.due_mileage||'') + '</td>' +
             '<td>' + (r.notify_email ? 'tak' : 'nie') + '</td><td>' + (r.notify_before_days ?? '') + '</td>' +
             '<td>' + (r.vehicle_id || '') + '</td>' +
-            '<td class="actions"><button onclick="completeReminder(' + r.id + ')">Zakończ</button> <button onclick="deleteReminder(' + r.id + ')">Usuń</button></td>';
+            '<td class="actions"><button type="button" onclick="completeReminder(' + r.id + ')">Zakończ</button> <button type="button" onclick="deleteReminder(' + r.id + ')">Usuń</button></td>';
           tb.appendChild(tr);
         });
       }catch(e){}
-    }
-    async function loadReminderVehicles(){
+    };
+
+    window.loadReminderVehicles = async function(){
       try{
         const list = await api('/api/vehicles');
-        const rsel = document.getElementById('r_vehicle'); if(!rsel) return;
+        const rsel = $('r_vehicle'); if(!rsel) return;
         rsel.innerHTML = '<option value="">—</option>';
         list.forEach(v => {
           const o = document.createElement('option');
@@ -931,45 +991,45 @@ INDEX_HTML = """
           rsel.appendChild(o);
         });
       }catch(e){}
-    }
-    async function addReminder(){
-      const selType = document.getElementById('r_type');
-      const custom = document.getElementById('r_type_custom');
+    };
+
+    window.addReminder = async function(){
+      const selType = $('r_type');
+      const custom = $('r_type_custom');
       const typeVal = selType && selType.value === 'Inne' ? (custom.value||'').trim() : (selType ? selType.value : '');
       if(!typeVal) return alert('Wybierz rodzaj lub wpisz własny powód.');
       const body = {
         title: typeVal,
-        due_date: r_date.value || null,
-        due_mileage: r_mileage.value || null,
-        vehicle_id: r_vehicle.value || null,
-        notify_email: document.getElementById('r_notify_mail').checked,
-        notify_before_days: parseInt(r_notify_days.value || '') || null
+        due_date: $('r_date').value || null,
+        due_mileage: $('r_mileage').value || null,
+        vehicle_id: $('r_vehicle').value || null,
+        notify_email: $('r_notify_mail').checked,
+        notify_before_days: parseInt($('r_notify_days').value || '') || null
       };
       await api('/api/reminders', { method:'POST', body: JSON.stringify(body), headers:{'Content-Type':'application/json'} });
       toast('Dodano przypomnienie');
-      if(selType) selType.value='Przegląd techniczny'; if(custom) custom.value='';
-      r_date.value=''; r_mileage.value='';
-      document.getElementById('r_type_custom_wrap').style.display='none';
-      document.getElementById('r_notify_mail').checked=false;
-      r_notify_days.value='';
+      selType.value='Przegląd techniczny'; if(custom) custom.value='';
+      $('r_date').value=''; $('r_mileage').value='';
+      $('r_type_custom_wrap').style.display='none';
+      $('r_notify_mail').checked=false;
+      $('r_notify_days').value='';
       await loadReminders();
-    }
-    async function completeReminder(id){ await api('/api/reminders/' + id, { method:'PUT', body: JSON.stringify({ completed_at: new Date().toISOString() }), headers:{'Content-Type':'application/json'} }); await loadReminders(); }
-    async function deleteReminder(id){ await api('/api/reminders/' + id, { method:'DELETE' }); await loadReminders(); }
+    };
 
-    // Wystaw wszystkie funkcje globalnie, żeby onclick="..." działał
-    Object.assign(window, {
-      register, login, logout,
-      loadVehicles, addVehicle, deleteSelectedVehicle,
-      addEntry, refreshEntries, delEntry, editEntry,
-      loadStats, loadReminders, loadReminderVehicles,
-      addReminder, completeReminder, deleteReminder,
-      toast
-    });
+    window.completeReminder = async function(id){
+      await api('/api/reminders/' + id, { method:'PUT', body: JSON.stringify({ completed_at: new Date().toISOString() }), headers:{'Content-Type':'application/json'} });
+      await loadReminders();
+    };
+
+    window.deleteReminder = async function(id){
+      await api('/api/reminders/' + id, { method:'DELETE' });
+      await loadReminders();
+    };
   </script>
 </body>
 </html>
 """
+
 
 
 @app.get("/")
