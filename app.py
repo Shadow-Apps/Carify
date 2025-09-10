@@ -1,17 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-e-Dziennik Serwisowy — Flask 3.x + PostgreSQL (Railway)
-
-- Rejestracja/logowanie (sesja)
-- Pojazdy + wpisy (upload plików)
-- Przypomnienia (data/przebieg, mail, ile dni wcześniej)
-- Wysyłka przez Gmail SMTP: carifynotification@gmail.com (App Password -> SMTP_PASS)
-- Dashboard: koszty dziennie (linia), ostatnie przebiegi
-- Eksport CSV
-- PostgreSQL (SQLAlchemy) — dane TRWAŁE (Railway Postgres)
-"""
-
 import os, re, csv, smtplib, ssl, logging, traceback
 import datetime as dt
 from decimal import Decimal
@@ -23,7 +11,6 @@ from flask import Flask, request, jsonify, session, send_from_directory, make_re
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
-# --- opcjonalny scheduler (apka działa też bez niego) ---
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     _HAS_APS = True
@@ -31,21 +18,35 @@ except Exception:
     BackgroundScheduler = None
     _HAS_APS = False
 
-# --- SQLAlchemy (PostgreSQL) ---
 from sqlalchemy import create_engine, text
 
 def _normalize_db_url(url: str) -> str:
-    # Railway zwykle daje postgres://... — SQLAlchemy z psycopg2 preferuje postgresql+psycopg2://
+    # Supabase/ogólnie Postgres URL -> dla SQLAlchemy + psycopg2
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql+psycopg2://", 1)
     elif url.startswith("postgresql://") and "+psycopg2" not in url:
         url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
     return url
 
-DB_URL = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or "postgresql://postgres:hKdkJQhSIVyPLcRpoDqkmxBBGTLgdPbH@tramway.proxy.rlwy.net:29359/railway"
+# --- DB: Supabase (wymaga SSL) ---
+DB_URL = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL")
+ENGINE = None
 if not DB_URL:
-    raise RuntimeError("Brak zmiennej środowiskowej DATABASE_URL (Railway Postgres).")
-ENGINE = create_engine(_normalize_db_url(DB_URL), pool_pre_ping=True)
+    print("[BOOT] Brak DATABASE_URL – dodaj Connection String z Supabase w Variables.")
+else:
+    DB_URL = _normalize_db_url(DB_URL)
+    ENGINE = create_engine(DB_URL, pool_pre_ping=True, connect_args={"sslmode": "require"})
+    print("[BOOT] DATABASE_URL OK.")
+
+def row_to_dict(row):
+    if row is None: return None
+    m = row._mapping if hasattr(row, "_mapping") else row
+    out = {}
+    for k, v in dict(m).items():
+        if isinstance(v, (dt.date, dt.datetime)): out[k] = v.isoformat()
+        elif isinstance(v, Decimal): out[k] = float(v)
+        else: out[k] = v
+    return out
 
 def db_all(sql, params=None):
     with ENGINE.connect() as conn:
@@ -66,33 +67,16 @@ def db_exec(sql, params=None, returning: bool=False):
             return row_to_dict(r) if r else None
         return res.rowcount
 
-def row_to_dict(row):
-    if row is None: return None
-    m = row._mapping if hasattr(row, "_mapping") else row
-    out = {}
-    for k, v in dict(m).items():
-        out[k] = _jsonify_value(v)
-    return out
-
-def _jsonify_value(v):
-    if isinstance(v, (dt.date, dt.datetime)):
-        return v.isoformat()
-    if isinstance(v, Decimal):
-        return float(v)
-    return v
-
-# --- app / pliki ---
+# --- App / pliki ---
 APP_TITLE = "e-Dziennik Serwisowy"
-
 BASE_DIR = os.path.dirname(__file__)
-UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")  # na Railway to pamięć efemeryczna (OK do demo)
+UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")  # Render Free: efemeryczne (OK do demo)
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "pdf", "webp"}
 
 app = Flask(__name__)
 app.config.update(
-    SECRET_KEY=os.environ.get("EDZIENNIK_SECRET", "123Jebacpsy2002"),
+    SECRET_KEY=os.environ.get("EDZIENNIK_SECRET", "dev-secret-change-me"),
     MAX_CONTENT_LENGTH=20 * 1024 * 1024,
     DEBUG=True,
     ENV="development",
@@ -101,7 +85,6 @@ app.config.update(
 
 logging.basicConfig(level=logging.INFO)
 
-# --- Logger + czytelne błędy dla /api ---
 @app.before_request
 def _log_request():
     g._start = datetime.utcnow()
@@ -120,13 +103,13 @@ def _handle_error(e):
         return jsonify({"error":"server_error","detail":str(e)}), 500
     raise e
 
-# --- SMTP (Gmail) ---
+# --- SMTP (Gmail App Password) ---
 SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER", "carifynotification@gmail.com")
-SMTP_PASS = os.environ.get("SMTP_PASS", "jbqc dpmi wjkk huct")   # App Password (16 znaków)
+SMTP_PASS = os.environ.get("SMTP_PASS", "")   # 16-znakowy App Password z Google
 EMAIL_FROM = os.environ.get("EMAIL_FROM", "carifynotification@gmail.com")
-DEFAULT_NOTIFY_BEFORE_DAYS = int(os.environ.get("NOTIFY_BEFORE_DAYS", "1"))
+DEFAULT_NOTIFY_BEFORE_DAYS = int(os.environ.get("NOTIFY_BEFORE_DAYS", "7"))
 
 def send_email(to_email: str, subject: str, html: str, plain: str = None):
     if not (SMTP_HOST and SMTP_USER and EMAIL_FROM and SMTP_PASS):
@@ -150,8 +133,10 @@ def send_email(to_email: str, subject: str, html: str, plain: str = None):
     print(f"[MAIL] Wysłano do {to_email}")
     return True
 
-# --- Schemat (PostgreSQL) ---
+# --- DB schema ---
 def init_db():
+    if ENGINE is None:
+        return
     ddl = """
     CREATE TABLE IF NOT EXISTS users (
         id              BIGSERIAL PRIMARY KEY,
@@ -160,7 +145,6 @@ def init_db():
         password_hash   TEXT NOT NULL,
         created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
-
     CREATE TABLE IF NOT EXISTS vehicles (
         id          BIGSERIAL PRIMARY KEY,
         owner_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -171,7 +155,6 @@ def init_db():
         reg_plate   TEXT,
         created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
-
     CREATE TABLE IF NOT EXISTS service_entries (
         id            BIGSERIAL PRIMARY KEY,
         vehicle_id    BIGINT NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
@@ -184,7 +167,6 @@ def init_db():
         created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at    TIMESTAMPTZ
     );
-
     CREATE TABLE IF NOT EXISTS reminders (
         id                  BIGSERIAL PRIMARY KEY,
         user_id             BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -208,14 +190,15 @@ _db_ready = False
 def _ensure_db_ready():
     global _db_ready
     if _db_ready: return
+    if ENGINE is None: return
     try:
         db_one("SELECT 1")
-        _db_ready = True
-    except Exception:
         init_db()
         _db_ready = True
+    except Exception as e:
+        print("[DB] init error:", e)
 
-# --- Auth helper ---
+# --- Helpers ---
 def login_required(f):
     @wraps(f)
     def wrap(*a, **kw):
@@ -224,7 +207,6 @@ def login_required(f):
         return f(*a, **kw)
     return wrap
 
-# --- Jobs (przypomnienia) ---
 def find_due_email_reminders():
     today = dt.date.today()
     users = {u["id"]: u for u in db_all("SELECT id,email,name FROM users")}
@@ -243,16 +225,13 @@ def find_due_email_reminders():
             nbd = int(r.get("notify_before_days") or DEFAULT_NOTIFY_BEFORE_DAYS)
             if r.get("due_date"):
                 try:
-                    due_date = dt.date.fromisoformat(r["due_date"]) if isinstance(r["due_date"], str) else dt.date.fromisoformat(str(r["due_date"]))
+                    due_date = dt.date.fromisoformat(str(r["due_date"]))
                     if today >= (due_date - timedelta(days=nbd)):
                         should = True
                 except Exception:
                     pass
         if r.get("due_mileage") and r.get("vehicle_id"):
-            last = db_one("""
-                SELECT MAX(COALESCE(mileage,0)) AS m
-                FROM service_entries WHERE vehicle_id=:vid
-            """, {"vid": r["vehicle_id"]})
+            last = db_one("SELECT MAX(COALESCE(mileage,0)) AS m FROM service_entries WHERE vehicle_id=:vid", {"vid": r["vehicle_id"]})
             if last and last.get("m") is not None:
                 if int(last["m"]) >= (int(r["due_mileage"]) - 500):
                     should = True
@@ -261,6 +240,7 @@ def find_due_email_reminders():
     return out
 
 def run_email_reminder_job():
+    if ENGINE is None: return
     for to_email, r in find_due_email_reminders():
         veh = " ".join([x for x in (r.get("make"), r.get("model"), r.get("reg_plate")) if x]).strip()
         subject = f"Przypomnienie serwisowe: {r.get('title')}"
@@ -275,10 +255,12 @@ def run_email_reminder_job():
         """
         send_email(to_email, subject, html)
 
-# --- Diagnostyka ---
+# --- Health / test mail ---
 @app.get("/api/health")
 def health():
     try:
+        if ENGINE is None:
+            return jsonify({"ok": False, "error": "Brak DATABASE_URL (Supabase)"}), 500
         db_one("SELECT 1")
         return jsonify({"ok": True})
     except Exception as e:
@@ -318,7 +300,6 @@ def register():
         """, {"email": email, "name": name, "ph": generate_password_hash(password)})
         return jsonify({"ok": True})
     except Exception as e:
-        # duplicate email
         if "unique" in str(e).lower() or "duplicate key" in str(e).lower():
             return jsonify({"error":"email_in_use"}), 400
         raise
@@ -474,7 +455,7 @@ def export_csv():
     resp.headers["Content-Disposition"] = "attachment; filename=service_entries.csv"
     return resp
 
-# --- Statystyki (dziennie) ---
+# --- Statystyki: koszty dziennie + ostatnie przebiegi ---
 @app.get("/api/stats")
 @login_required
 def stats():
@@ -569,48 +550,61 @@ INDEX_HTML = """
   <meta name=viewport content="width=device-width,initial-scale=1">
   <title>{APP_TITLE}</title>
   <script>
-  async function api(path, opts={{}}) {{
-    try {{
-      const res = await fetch(path, Object.assign({{headers: {{}}}}, opts));
+  // Helper: fetch JSON
+  async function api(path, opts = {}) {
+    try {
+      const res = await fetch(path, Object.assign({ headers: {} }, opts));
       const ct = res.headers.get('content-type') || '';
       let data = null;
-      if (ct.includes('application/json')) data = await res.json().catch(()=>null);
-      else data = await res.text().catch(()=>null);
-      if (!res.ok) {{
+      if (ct.includes('application/json')) data = await res.json().catch(() => null);
+      else data = await res.text().catch(() => null);
+      if (!res.ok) {
         console.error('[API ERR]', path, res.status, data);
         const msg = (data && (data.error || data.detail || data.message)) || String(data) || 'Błąd';
-        throw new Error('['+res.status+'] '+msg);
-      }}
+        throw new Error('[' + res.status + '] ' + msg);
+      }
       return data;
-    }} catch (e) {{
+    } catch (e) {
       console.error('[API EXC]', path, e);
       throw e;
-    }}
-  }}
-  window.addEventListener('error', ev=>{{ console.error('[window.error]', ev.message); alert('Błąd JS: '+ev.message); }});
-  window.addEventListener('unhandledrejection', ev=>{{ console.error('[unhandledrejection]', ev.reason); alert('Błąd: '+(ev.reason?.message||ev.reason||'Nieznany')); }});
-  </script>
+    }
+  }
+  window.addEventListener('error', ev => { console.error('[window.error]', ev.message); alert('Błąd JS: ' + ev.message); });
+  window.addEventListener('unhandledrejection', ev => { console.error('[unhandledrejection]', ev.reason); alert('Błąd: ' + (ev.reason?.message || ev.reason || 'Nieznany')); });
+</script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
-    :root{{--bg:#0a0a0a;--bg2:#1a0000;--card:#141414;--text:#f3f4f6;--muted:#9ca3af;--border:#262626;--accent:#ff3232;--accent-600:#cc2727;--r:14px;--pad:14px;--gap:18px;--sh:0 10px 28px rgba(0,0,0,.7)}}
-    *{{box-sizing:border-box}} body{{margin:0;background:linear-gradient(180deg,var(--bg),var(--bg2));color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}}
-    header{{position:sticky;top:0;z-index:10;background:#0f0f0f;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:var(--gap);padding:var(--pad) calc(var(--pad)*1.5)}}
-    .brand{{display:flex;align-items:center;gap:10px;font-weight:800}}
-    .brand svg{{width:28px;height:28px}}
-    main{{padding:calc(var(--pad)*1.5);display:grid;grid-template-columns:minmax(320px,380px) 1fr;gap:var(--gap);align-items:start}}
-    .card{{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:var(--pad);box-shadow:var(--sh)}}
-    h3{{margin:0 0 10px}} label{{display:block;font-size:12px;color:var(--muted);margin:8px 0 6px}}
-    input,select,textarea{{width:100%;display:block;padding:12px;border-radius:10px;border:1px solid var(--border);background:#0f0f0f;color:var(--text);outline:none}}
-    input:focus,select:focus,textarea:focus{{border-color:var(--accent);box-shadow:0 0 0 2px rgba(255,50,50,.45)}}
-    button{{padding:10px 14px;border:1px solid var(--border);background:#0f0f0f;color:var(--text);border-radius:10px;cursor:pointer}}
-    button.primary{{background:var(--accent);border-color:var(--accent);color:#fff}} button.primary:hover{{background:var(--accent-600)}}
-    a{{color:#ff7b7b;text-decoration:none}} a:hover{{text-decoration:underline}}
-    .row{{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap)}} @media(max-width:1100px){{main{{grid-template-columns:1fr}} .row{{grid-template-columns:1fr}}}}
-    table{{width:100%;border-collapse:collapse;background:#0f0f0f;border:1px solid var(--border);border-radius:var(--r);overflow:hidden}}
-    thead th{{background:#1f1f1f;color:#ff9c9c}} th,td{{padding:12px;border-bottom:1px solid var(--border);text-align:left;font-size:14px}}
-    .actions{{display:flex;gap:8px}} .muted{{color:var(--muted)}} .toast{{position:fixed;right:16px;bottom:16px;background:var(--accent);color:#fff;padding:10px 14px;border-radius:10px;display:none;box-shadow:var(--sh)}}
-    canvas{{background:radial-gradient(ellipse at top,#151515,#0d0d0d);border:1px solid var(--border);border-radius:12px;padding:8px}}
-  </style>
+  :root { --bg:#0a0a0a; --bg2:#1a0000; --card:#141414; --text:#f3f4f6; --muted:#9ca3af; --border:#262626; --accent:#ff3232; --accent-600:#cc2727; --r:14px; --pad:14px; --gap:18px; --sh:0 10px 28px rgba(0,0,0,.7) }
+  * { box-sizing:border-box }
+  body { margin:0; background:linear-gradient(180deg,var(--bg),var(--bg2)); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial }
+  header { position:sticky; top:0; z-index:10; background:#0f0f0f; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:var(--gap); padding:var(--pad) calc(var(--pad)*1.5) }
+  .brand { display:flex; align-items:center; gap:10px; font-weight:800 }
+  .brand svg { width:28px; height:28px }
+  main { padding:calc(var(--pad)*1.5); display:grid; grid-template-columns:minmax(320px,380px) 1fr; gap:var(--gap); align-items:start }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:var(--pad); box-shadow:var(--sh) }
+  h3 { margin:0 0 10px }
+  label { display:block; font-size:12px; color:var(--muted); margin:8px 0 6px }
+  input,select,textarea { width:100%; display:block; padding:12px; border-radius:10px; border:1px solid var(--border); background:#0f0f0f; color:var(--text); outline:none }
+  input:focus,select:focus,textarea:focus { border-color:var(--accent); box-shadow:0 0 0 2px rgba(255,50,50,.45) }
+  button { padding:10px 14px; border:1px solid var(--border); background:#0f0f0f; color:var(--text); border-radius:10px; cursor:pointer }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff }
+  button.primary:hover { background:var(--accent-600) }
+  a { color:#ff7b7b; text-decoration:none }
+  a:hover { text-decoration:underline }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:var(--gap) }
+  @media (max-width:1100px) {
+    main { grid-template-columns:1fr }
+    .row { grid-template-columns:1fr }
+  }
+  table { width:100%; border-collapse:collapse; background:#0f0f0f; border:1px solid var(--border); border-radius:var(--r); overflow:hidden }
+  thead th { background:#1f1f1f; color:#ff9c9c }
+  th, td { padding:12px; border-bottom:1px solid var(--border); text-align:left; font-size:14px }
+  .actions { display:flex; gap:8px }
+  .muted { color:var(--muted) }
+  .toast { position:fixed; right:16px; bottom:16px; background:var(--accent); color:#fff; padding:10px 14px; border-radius:10px; display:none; box-shadow:var(--sh) }
+  canvas { background:radial-gradient(ellipse at top,#151515,#0d0d0d); border:1px solid var(--border); border-radius:12px; padding:8px }
+</style>
+
 </head>
 <body>
   <header>
@@ -733,7 +727,7 @@ INDEX_HTML = """
   </main>
 
   <section class="card" style="margin:0 calc(var(--pad)*1.5) calc(var(--pad)*1.5);">
-    <h3>📊 Dashboard</h3>
+    <h3>Wykres Kosztów</h3>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 14px;">
       <label style="margin:0;align-self:center;">Zakres dni:</label>
       <select id="dash_range" onchange="loadStats()" style="max-width:220px;">
@@ -903,7 +897,7 @@ def index_page():
 
 if __name__ == "__main__":
     init_db()
-    print(f"\n{APP_TITLE} — start lokalnie na http://127.0.0.1:5000 (Railway użyje gunicorn)\n")
+    print(f"\n{APP_TITLE} — start lokalnie na http://127.0.0.1:5000 (Render użyje gunicorn)\n")
     if _HAS_APS:
         scheduler = BackgroundScheduler(daemon=True)
         scheduler.add_job(run_email_reminder_job, "interval", hours=1, next_run_time=datetime.utcnow())
