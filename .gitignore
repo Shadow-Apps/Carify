@@ -1,12 +1,5 @@
-# Python
 __pycache__/
 *.pyc
-
-# Dane / pliki użytkownika
-data/
 uploads/
 export.csv
-service_log.db
-
-# Lokalne środowisko
 .env

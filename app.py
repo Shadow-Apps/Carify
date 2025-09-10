@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-e-Dziennik Serwisowy — Flask 3.x (single-file)
+e-Dziennik Serwisowy — Flask 3.x + PostgreSQL (Railway)
 
-Funkcje:
-- Rejestracja / logowanie (sesja)
+- Rejestracja/logowanie (sesja)
 - Pojazdy + wpisy (upload plików)
-- Przypomnienia (data/przebieg, typ z listy + "Inne", mail, ile dni wcześniej)
-- Wysyłka maili przez Gmail SMTP: carifynotification@gmail.com (App Password w SMTP_PASS)
-- Dashboard: koszty dziennie (line), ostatnie przebiegi
+- Przypomnienia (data/przebieg, mail, ile dni wcześniej)
+- Wysyłka przez Gmail SMTP: carifynotification@gmail.com (App Password -> SMTP_PASS)
+- Dashboard: koszty dziennie (linia), ostatnie przebiegi
 - Eksport CSV
-- SQLite w pliku na podpiętym dysku (trwałość danych)
+- PostgreSQL (SQLAlchemy) — dane TRWAŁE (Railway Postgres)
 """
 
-import os, re, csv, sqlite3, smtplib, ssl, logging, traceback
+import os, re, csv, smtplib, ssl, logging, traceback
+import datetime as dt
+from decimal import Decimal
 from email.message import EmailMessage
 from datetime import datetime, timedelta
 from functools import wraps
@@ -22,7 +23,7 @@ from flask import Flask, request, jsonify, session, send_from_directory, make_re
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
-# --- APScheduler opcjonalny (działa także bez niego) ---
+# --- opcjonalny scheduler (apka działa też bez niego) ---
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     _HAS_APS = True
@@ -30,25 +31,69 @@ except Exception:
     BackgroundScheduler = None
     _HAS_APS = False
 
-# --- KONFIG ---
+# --- SQLAlchemy (PostgreSQL) ---
+from sqlalchemy import create_engine, text
+
+def _normalize_db_url(url: str) -> str:
+    # Railway zwykle daje postgres://... — SQLAlchemy z psycopg2 preferuje postgresql+psycopg2://
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+psycopg2://", 1)
+    elif url.startswith("postgresql://") and "+psycopg2" not in url:
+        url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
+    return url
+
+DB_URL = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or ""
+if not DB_URL:
+    raise RuntimeError("Brak zmiennej środowiskowej DATABASE_URL (Railway Postgres).")
+ENGINE = create_engine(_normalize_db_url(DB_URL), pool_pre_ping=True)
+
+def db_all(sql, params=None):
+    with ENGINE.connect() as conn:
+        res = conn.execute(text(sql), params or {})
+        return [row_to_dict(r) for r in res]
+
+def db_one(sql, params=None):
+    with ENGINE.connect() as conn:
+        res = conn.execute(text(sql), params or {})
+        r = res.fetchone()
+        return row_to_dict(r) if r else None
+
+def db_exec(sql, params=None, returning: bool=False):
+    with ENGINE.begin() as conn:
+        res = conn.execute(text(sql), params or {})
+        if returning:
+            r = res.fetchone()
+            return row_to_dict(r) if r else None
+        return res.rowcount
+
+def row_to_dict(row):
+    if row is None: return None
+    m = row._mapping if hasattr(row, "_mapping") else row
+    out = {}
+    for k, v in dict(m).items():
+        out[k] = _jsonify_value(v)
+    return out
+
+def _jsonify_value(v):
+    if isinstance(v, (dt.date, dt.datetime)):
+        return v.isoformat()
+    if isinstance(v, Decimal):
+        return float(v)
+    return v
+
+# --- app / pliki ---
 APP_TITLE = "e-Dziennik Serwisowy"
 
 BASE_DIR = os.path.dirname(__file__)
-# Montowany katalog na hostingu (Render) — baza + uploady
-FILES_DIR = os.environ.get("FILES_DIR", os.path.join(BASE_DIR, "data"))
-os.makedirs(FILES_DIR, exist_ok=True)
-
-DB_PATH = os.path.join(FILES_DIR, "service_log.db")
-UPLOAD_DIR = os.path.join(FILES_DIR, "uploads")
+UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")  # na Railway to pamięć efemeryczna (OK do demo)
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "pdf", "webp"}
 
-# Flask
 app = Flask(__name__)
 app.config.update(
     SECRET_KEY=os.environ.get("EDZIENNIK_SECRET", "dev-secret-change-me"),
-    MAX_CONTENT_LENGTH=20 * 1024 * 1024,  # 20 MB
+    MAX_CONTENT_LENGTH=20 * 1024 * 1024,
     DEBUG=True,
     ENV="development",
     PROPAGATE_EXCEPTIONS=True,
@@ -56,7 +101,7 @@ app.config.update(
 
 logging.basicConfig(level=logging.INFO)
 
-# --- Logger żądań / odpowiedzi + zwrot JSON dla /api na 500 ---
+# --- Logger + czytelne błędy dla /api ---
 @app.before_request
 def _log_request():
     g._start = datetime.utcnow()
@@ -64,8 +109,8 @@ def _log_request():
 
 @app.after_request
 def _log_response(resp):
-    dt = (datetime.utcnow() - g._start).total_seconds() if getattr(g, "_start", None) else 0
-    app.logger.info("<<< %s %s %s (%.3fs)", request.method, request.path, resp.status_code, dt)
+    dtsec = (datetime.utcnow() - g._start).total_seconds() if getattr(g, "_start", None) else 0
+    app.logger.info("<<< %s %s %s (%.3fs)", request.method, request.path, resp.status_code, dtsec)
     return resp
 
 @app.errorhandler(Exception)
@@ -79,107 +124,13 @@ def _handle_error(e):
 SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER", "carifynotification@gmail.com")
-SMTP_PASS = os.environ.get("SMTP_PASS", "")   # <-- WYMAGANE: 16-znakowy App Password z Google
+SMTP_PASS = os.environ.get("SMTP_PASS", "")   # App Password (16 znaków)
 EMAIL_FROM = os.environ.get("EMAIL_FROM", "carifynotification@gmail.com")
 DEFAULT_NOTIFY_BEFORE_DAYS = int(os.environ.get("NOTIFY_BEFORE_DAYS", "7"))
 
-# --- DB helpers ---
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def column_exists(conn, table, column):
-    cur = conn.execute(f"PRAGMA table_info({table})")
-    return any(r["name"] == column for r in cur.fetchall())
-
-def init_db():
-    conn = get_db()
-    cur = conn.cursor()
-    cur.executescript("""
-        PRAGMA foreign_keys = ON;
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE NOT NULL,
-            name TEXT NOT NULL,
-            password_hash TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS vehicles (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            owner_id INTEGER NOT NULL,
-            make TEXT NOT NULL,
-            model TEXT NOT NULL,
-            year INTEGER,
-            vin TEXT,
-            reg_plate TEXT,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE CASCADE
-        );
-        CREATE TABLE IF NOT EXISTS service_entries (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            vehicle_id INTEGER NOT NULL,
-            date TEXT NOT NULL,
-            mileage INTEGER,
-            service_type TEXT NOT NULL,
-            description TEXT,
-            cost REAL,
-            attachment TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT,
-            FOREIGN KEY(vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE
-        );
-        CREATE TABLE IF NOT EXISTS reminders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            vehicle_id INTEGER,
-            title TEXT NOT NULL,
-            due_date TEXT,
-            due_mileage INTEGER,
-            notify_email INTEGER DEFAULT 0,
-            notify_before_days INTEGER DEFAULT 7,
-            created_at TEXT NOT NULL,
-            completed_at TEXT,
-            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY(vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE
-        );
-    """)
-    # migracje ewentualnych kolumn
-    try:
-        if not column_exists(conn, "reminders", "notify_email"):
-            conn.execute("ALTER TABLE reminders ADD COLUMN notify_email INTEGER DEFAULT 0")
-        if not column_exists(conn, "reminders", "notify_before_days"):
-            conn.execute("ALTER TABLE reminders ADD COLUMN notify_before_days INTEGER DEFAULT 7")
-    except Exception as e:
-        print("[DB] ALTER warnings:", e)
-    conn.commit()
-    conn.close()
-
-# Lazy init DB — działa dla każdego sposobu uruchomienia
-_db_ready = False
-@app.before_request
-def _ensure_db_ready():
-    global _db_ready
-    if _db_ready: return
-    try:
-        conn = get_db(); conn.execute("SELECT 1 FROM users LIMIT 1"); conn.close()
-        _db_ready = True
-    except sqlite3.OperationalError:
-        init_db(); _db_ready = True
-
-# --- Auth utility ---
-def login_required(f):
-    @wraps(f)
-    def wrapper(*args, **kwargs):
-        if not session.get("user_id"):
-            return jsonify({"error":"auth_required"}), 401
-        return f(*args, **kwargs)
-    return wrapper
-
-# --- Mail ---
 def send_email(to_email: str, subject: str, html: str, plain: str = None):
     if not (SMTP_HOST and SMTP_USER and EMAIL_FROM and SMTP_PASS):
-        print("[MAIL] Brak konfiguracji SMTP (ustaw SMTP_PASS itd.).")
+        print("[MAIL] Brak SMTP_PASS/konfiguracji.")
         return False
     msg = EmailMessage()
     msg["From"] = EMAIL_FROM
@@ -199,54 +150,118 @@ def send_email(to_email: str, subject: str, html: str, plain: str = None):
     print(f"[MAIL] Wysłano do {to_email}")
     return True
 
+# --- Schemat (PostgreSQL) ---
+def init_db():
+    ddl = """
+    CREATE TABLE IF NOT EXISTS users (
+        id              BIGSERIAL PRIMARY KEY,
+        email           TEXT UNIQUE NOT NULL,
+        name            TEXT NOT NULL,
+        password_hash   TEXT NOT NULL,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS vehicles (
+        id          BIGSERIAL PRIMARY KEY,
+        owner_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        make        TEXT NOT NULL,
+        model       TEXT NOT NULL,
+        year        INTEGER,
+        vin         TEXT,
+        reg_plate   TEXT,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS service_entries (
+        id            BIGSERIAL PRIMARY KEY,
+        vehicle_id    BIGINT NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+        date          DATE NOT NULL,
+        mileage       INTEGER,
+        service_type  TEXT NOT NULL,
+        description   TEXT,
+        cost          NUMERIC,
+        attachment    TEXT,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at    TIMESTAMPTZ
+    );
+
+    CREATE TABLE IF NOT EXISTS reminders (
+        id                  BIGSERIAL PRIMARY KEY,
+        user_id             BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        vehicle_id          BIGINT REFERENCES vehicles(id) ON DELETE CASCADE,
+        title               TEXT NOT NULL,
+        due_date            DATE,
+        due_mileage         INTEGER,
+        notify_email        BOOLEAN NOT NULL DEFAULT FALSE,
+        notify_before_days  INTEGER NOT NULL DEFAULT 7,
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        completed_at        TIMESTAMPTZ
+    );
+    """
+    with ENGINE.begin() as conn:
+        for stmt in ddl.strip().split(";\n\n"):
+            if stmt.strip():
+                conn.execute(text(stmt))
+
+_db_ready = False
+@app.before_request
+def _ensure_db_ready():
+    global _db_ready
+    if _db_ready: return
+    try:
+        db_one("SELECT 1")
+        _db_ready = True
+    except Exception:
+        init_db()
+        _db_ready = True
+
+# --- Auth helper ---
+def login_required(f):
+    @wraps(f)
+    def wrap(*a, **kw):
+        if not session.get("user_id"):
+            return jsonify({"error":"auth_required"}), 401
+        return f(*a, **kw)
+    return wrap
+
+# --- Jobs (przypomnienia) ---
 def find_due_email_reminders():
-    """Zbiera przypomnienia do powiadomienia (mailowo i/lub przebiegowo)."""
-    conn = get_db()
-    today = datetime.utcnow().date()
-    out = []
-    users = {r["id"]: r for r in conn.execute("SELECT id,email,name FROM users").fetchall()}
-    rows = conn.execute("""
+    today = dt.date.today()
+    users = {u["id"]: u for u in db_all("SELECT id,email,name FROM users")}
+    rows = db_all("""
         SELECT r.*, v.make, v.model, v.reg_plate
         FROM reminders r
-        LEFT JOIN vehicles v ON v.id=r.vehicle_id
+        LEFT JOIN vehicles v ON v.id = r.vehicle_id
         WHERE r.completed_at IS NULL
-    """).fetchall()
+    """)
+    out = []
     for r in rows:
-        rd = dict(r)
-        email = users.get(rd["user_id"], {}).get("email")
+        email = users.get(r["user_id"], {}).get("email")
         if not email: continue
-        should_notify = False
-        # data (jeśli notify_email)
-        if rd.get("notify_email"):
-            try:
-                nbd = int(rd.get("notify_before_days") if rd.get("notify_before_days") is not None else DEFAULT_NOTIFY_BEFORE_DAYS)
-            except Exception:
-                nbd = DEFAULT_NOTIFY_BEFORE_DAYS
-            if rd.get("due_date"):
+        should = False
+        if r.get("notify_email"):
+            nbd = int(r.get("notify_before_days") or DEFAULT_NOTIFY_BEFORE_DAYS)
+            if r.get("due_date"):
                 try:
-                    due_date = datetime.strptime(rd["due_date"], "%Y-%m-%d").date()
+                    due_date = dt.date.fromisoformat(r["due_date"]) if isinstance(r["due_date"], str) else dt.date.fromisoformat(str(r["due_date"]))
                     if today >= (due_date - timedelta(days=nbd)):
-                        should_notify = True
+                        should = True
                 except Exception:
                     pass
-        # przebieg (niezależnie od notify_email)
-        if rd.get("due_mileage") and rd.get("vehicle_id"):
-            last = conn.execute(
-                "SELECT MAX(COALESCE(mileage,0)) AS m FROM service_entries WHERE vehicle_id=?",
-                (rd["vehicle_id"],)
-            ).fetchone()
-            if last and last["m"] is not None:
-                if last["m"] >= (int(rd["due_mileage"]) - 500):  # margines 500 km
-                    should_notify = True
-        if should_notify:
-            out.append((email, rd))
-    conn.close()
+        if r.get("due_mileage") and r.get("vehicle_id"):
+            last = db_one("""
+                SELECT MAX(COALESCE(mileage,0)) AS m
+                FROM service_entries WHERE vehicle_id=:vid
+            """, {"vid": r["vehicle_id"]})
+            if last and last.get("m") is not None:
+                if int(last["m"]) >= (int(r["due_mileage"]) - 500):
+                    should = True
+        if should:
+            out.append((email, r))
     return out
 
 def run_email_reminder_job():
-    """Wysyła maile dla zalegających/zbliżających się przypomnień."""
-    items = find_due_email_reminders()
-    for to_email, r in items:
+    for to_email, r in find_due_email_reminders():
         veh = " ".join([x for x in (r.get("make"), r.get("model"), r.get("reg_plate")) if x]).strip()
         subject = f"Przypomnienie serwisowe: {r.get('title')}"
         html = f"""
@@ -264,7 +279,7 @@ def run_email_reminder_job():
 @app.get("/api/health")
 def health():
     try:
-        conn = get_db(); conn.execute("SELECT 1"); conn.close()
+        db_one("SELECT 1")
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -272,12 +287,10 @@ def health():
 @app.get("/api/test-mail")
 @login_required
 def test_mail():
-    conn = get_db()
-    row = conn.execute("SELECT email FROM users WHERE id=?", (session["user_id"],)).fetchone()
-    conn.close()
-    if not row: return jsonify({"error": "user_not_found"}), 404
-    ok = send_email(row["email"], "Test: e-Dziennik Serwisowy", "<p>To jest testowy e-mail 🚗🔧</p>")
-    return jsonify({"ok": bool(ok), "to": row["email"]})
+    u = db_one("SELECT email FROM users WHERE id=:id", {"id": session["user_id"]})
+    if not u: return jsonify({"error":"user_not_found"}), 404
+    ok = send_email(u["email"], "Test: e-Dziennik Serwisowy", "<p>To jest testowy e-mail 🚗🔧</p>")
+    return jsonify({"ok": bool(ok), "to": u["email"]})
 
 @app.post("/api/run-reminder-job")
 def run_job_now():
@@ -299,13 +312,16 @@ def register():
     if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
         return jsonify({"error":"invalid_email"}), 400
     try:
-        conn = get_db()
-        conn.execute("INSERT INTO users(email,name,password_hash,created_at) VALUES (?,?,?,?)",
-                     (email, name, generate_password_hash(password), datetime.utcnow().isoformat()))
-        conn.commit(); conn.close()
+        db_exec("""
+            INSERT INTO users(email,name,password_hash,created_at)
+            VALUES (:email,:name,:ph,NOW())
+        """, {"email": email, "name": name, "ph": generate_password_hash(password)})
         return jsonify({"ok": True})
-    except sqlite3.IntegrityError:
-        return jsonify({"error":"email_in_use"}), 400
+    except Exception as e:
+        # duplicate email
+        if "unique" in str(e).lower() or "duplicate key" in str(e).lower():
+            return jsonify({"error":"email_in_use"}), 400
+        raise
 
 @app.post("/api/login")
 def login():
@@ -314,13 +330,12 @@ def login():
     password = data.get("password") or ""
     if not (email and password):
         return jsonify({"error":"missing_fields"}), 400
-    conn = get_db()
-    row = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
-    conn.close()
+    row = db_one("SELECT * FROM users WHERE email=:email", {"email": email})
     if not row or not check_password_hash(row["password_hash"], password):
         return jsonify({"error":"invalid_credentials"}), 401
-    session["user_id"] = row["id"]; session["user_name"] = row["name"]
-    return jsonify({"ok": True, "user":{"id":row["id"],"name":row["name"],"email":row["email"]}})
+    session["user_id"] = row["id"]
+    session["user_name"] = row["name"]
+    return jsonify({"ok": True, "user": {"id": row["id"], "name": row["name"], "email": row["email"]}})
 
 @app.post("/api/logout")
 @login_required
@@ -332,34 +347,30 @@ def logout():
 @app.get("/api/vehicles")
 @login_required
 def list_vehicles():
-    conn = get_db()
-    rows = conn.execute("SELECT * FROM vehicles WHERE owner_id=? ORDER BY created_at DESC", (session["user_id"],)).fetchall()
-    conn.close()
-    return jsonify([dict(r) for r in rows])
+    rows = db_all("SELECT * FROM vehicles WHERE owner_id=:uid ORDER BY created_at DESC", {"uid": session["user_id"]})
+    return jsonify(rows)
 
 @app.post("/api/vehicles")
 @login_required
 def add_vehicle():
-    data = request.get_json(silent=True) or {}
-    make  = (data.get("make") or "").strip()
-    model = (data.get("model") or "").strip()
-    year  = data.get("year")
-    vin   = (data.get("vin") or "").strip()
-    reg   = (data.get("reg_plate") or "").strip()
+    d = request.get_json(silent=True) or {}
+    make  = (d.get("make") or "").strip()
+    model = (d.get("model") or "").strip()
+    year  = d.get("year")
+    vin   = (d.get("vin") or "").strip()
+    reg   = (d.get("reg_plate") or "").strip()
     if not (make and model): return jsonify({"error":"missing_fields"}), 400
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("""INSERT INTO vehicles(owner_id,make,model,year,vin,reg_plate,created_at)
-                   VALUES (?,?,?,?,?,?,?)""",
-                (session["user_id"], make, model, year, vin, reg, datetime.utcnow().isoformat()))
-    conn.commit(); vid = cur.lastrowid; conn.close()
-    return jsonify({"ok": True, "id": vid})
+    row = db_exec("""
+        INSERT INTO vehicles(owner_id,make,model,year,vin,reg_plate,created_at)
+        VALUES (:uid,:make,:model,:year,:vin,:reg,NOW())
+        RETURNING id
+    """, {"uid": session["user_id"], "make": make, "model": model, "year": year, "vin": vin, "reg": reg}, returning=True)
+    return jsonify({"ok": True, "id": row["id"]})
 
 @app.delete("/api/vehicles/<int:vehicle_id>")
 @login_required
 def delete_vehicle(vehicle_id):
-    conn = get_db()
-    conn.execute("DELETE FROM vehicles WHERE id=? AND owner_id=?", (vehicle_id, session["user_id"]))
-    conn.commit(); conn.close()
+    db_exec("DELETE FROM vehicles WHERE id=:id AND owner_id=:uid", {"id": vehicle_id, "uid": session["user_id"]})
     return jsonify({"ok": True})
 
 # --- Entries ---
@@ -368,21 +379,25 @@ def delete_vehicle(vehicle_id):
 def list_entries():
     vehicle_id = request.args.get("vehicle_id", type=int)
     q = request.args.get("q", type=str)
-    params = [session["user_id"]]
-    sql = "SELECT e.* FROM service_entries e JOIN vehicles v ON v.id=e.vehicle_id WHERE v.owner_id=?"
-    if vehicle_id: sql += " AND e.vehicle_id=?"; params.append(vehicle_id)
-    if q: sql += " AND (e.service_type LIKE ? OR e.description LIKE ?)"; params.extend([f"%{q}%", f"%{q}%"])
-    sql += " ORDER BY date DESC, id DESC"
-    conn = get_db(); rows = conn.execute(sql, params).fetchall(); conn.close()
-    return jsonify([dict(r) for r in rows])
+    params = {"uid": session["user_id"]}
+    sql = "SELECT e.* FROM service_entries e JOIN vehicles v ON v.id=e.vehicle_id WHERE v.owner_id=:uid"
+    if vehicle_id:
+        sql += " AND e.vehicle_id=:vid"; params["vid"] = vehicle_id
+    if q:
+        sql += " AND (e.service_type ILIKE :q OR e.description ILIKE :q)"; params["q"] = f"%{q}%"
+    sql += " ORDER BY e.date DESC, e.id DESC"
+    return jsonify(db_all(sql, params))
 
 @app.post("/api/entries")
 @login_required
 def add_entry():
     data = request.form if request.form else (request.get_json(silent=True) or {})
-    try: vehicle_id = int(data.get("vehicle_id"))
-    except Exception: return jsonify({"error":"vehicle_id_required"}), 400
-    date = (data.get("date") or datetime.utcnow().date().isoformat())
+    try:
+        vehicle_id = int(data.get("vehicle_id"))
+    except Exception:
+        return jsonify({"error":"vehicle_id_required"}), 400
+
+    date = data.get("date") or datetime.utcnow().date().isoformat()
     mileage = int(data.get("mileage") or 0)
     service_type = (data.get("service_type") or "").strip()
     description  = (data.get("description") or "").strip()
@@ -391,42 +406,43 @@ def add_entry():
 
     attachment_name = None
     if "file" in request.files and request.files["file"].filename:
-        f = request.files["file"]; fname = secure_filename(f.filename)
-        ext = fname.rsplit(".",1)[-1].lower() if "." in fname else ""
-        if ext not in ALLOWED_EXTENSIONS: return jsonify({"error":"file_type_not_allowed"}), 400
+        f = request.files["file"]
+        fname = secure_filename(f.filename)
+        ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
+        if ext not in ALLOWED_EXTENSIONS:
+            return jsonify({"error":"file_type_not_allowed"}), 400
         ts = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")
-        attachment_name = f"{ts}_{fname}"; f.save(os.path.join(UPLOAD_DIR, attachment_name))
+        attachment_name = f"{ts}_{fname}"
+        f.save(os.path.join(UPLOAD_DIR, attachment_name))
 
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("""INSERT INTO service_entries(vehicle_id,date,mileage,service_type,description,cost,attachment,created_at)
-                   VALUES (?,?,?,?,?,?,?,?)""",
-                (vehicle_id, date, mileage, service_type, description, cost, attachment_name, datetime.utcnow().isoformat()))
-    conn.commit(); eid = cur.lastrowid; conn.close()
-    return jsonify({"ok": True, "id": eid, "attachment": attachment_name})
+    row = db_exec("""
+        INSERT INTO service_entries(vehicle_id,date,mileage,service_type,description,cost,attachment,created_at)
+        VALUES (:vid, :date, :mileage, :stype, :descr, :cost, :att, NOW())
+        RETURNING id
+    """, {"vid": vehicle_id, "date": date, "mileage": mileage, "stype": service_type, "descr": description, "cost": cost, "att": attachment_name},
+       returning=True)
+    return jsonify({"ok": True, "id": row["id"], "attachment": attachment_name})
 
 @app.put("/api/entries/<int:entry_id>")
 @login_required
 def update_entry(entry_id):
     data = request.get_json(silent=True) or {}
-    fields = [("date", str), ("mileage", int), ("service_type", str), ("description", str), ("cost", float)]
-    sets, params = [], []
-    for key, caster in fields:
-        if key in data:
-            sets.append(f"{key}=?")
-            try: params.append(caster(data[key]) if data[key] is not None else None)
-            except Exception: return jsonify({"error": f"invalid_{key}"}), 400
-    if not sets: return jsonify({"error":"no_fields"}), 400
-    params.extend([datetime.utcnow().isoformat(), entry_id, session["user_id"]])
-    sql = "UPDATE service_entries SET " + ",".join(sets) + ", updated_at=? WHERE id=? AND vehicle_id IN (SELECT id FROM vehicles WHERE owner_id=?)"
-    conn = get_db(); conn.execute(sql, params); conn.commit(); conn.close()
+    fields, params = [], {"id": entry_id, "uid": session["user_id"]}
+    mapping = {"date":"date","mileage":"mileage","service_type":"service_type","description":"description","cost":"cost"}
+    for k in mapping:
+        if k in data:
+            fields.append(f"{mapping[k]} = :{k}")
+            params[k] = data[k]
+    if not fields: return jsonify({"error":"no_fields"}), 400
+    sql = "UPDATE service_entries SET " + ", ".join(fields) + ", updated_at=NOW() WHERE id=:id AND vehicle_id IN (SELECT id FROM vehicles WHERE owner_id=:uid)"
+    db_exec(sql, params)
     return jsonify({"ok": True})
 
 @app.delete("/api/entries/<int:entry_id>")
 @login_required
 def delete_entry(entry_id):
-    conn = get_db()
-    conn.execute("DELETE FROM service_entries WHERE id=? AND vehicle_id IN (SELECT id FROM vehicles WHERE owner_id=?)", (entry_id, session["user_id"]))
-    conn.commit(); conn.close()
+    db_exec("DELETE FROM service_entries WHERE id=:id AND vehicle_id IN (SELECT id FROM vehicles WHERE owner_id=:uid)",
+            {"id": entry_id, "uid": session["user_id"]})
     return jsonify({"ok": True})
 
 # --- Files ---
@@ -440,19 +456,19 @@ def get_upload(filename):
 @login_required
 def export_csv():
     vehicle_id = request.args.get("vehicle_id", type=int)
-    conn = get_db()
-    params = [session["user_id"]]
+    params = {"uid": session["user_id"]}
     sql = ("SELECT e.id,e.vehicle_id,e.date,e.mileage,e.service_type,e.description,e.cost,e.attachment "
-           "FROM service_entries e JOIN vehicles v ON v.id=e.vehicle_id WHERE v.owner_id=?")
-    if vehicle_id: sql += " AND e.vehicle_id=?"; params.append(vehicle_id)
+           "FROM service_entries e JOIN vehicles v ON v.id=e.vehicle_id WHERE v.owner_id=:uid")
+    if vehicle_id: sql += " AND e.vehicle_id=:vid"; params["vid"] = vehicle_id
     sql += " ORDER BY e.date DESC, e.id DESC"
-    rows = conn.execute(sql, params).fetchall(); conn.close()
-    out_path = os.path.join(FILES_DIR, "export.csv")
+    rows = db_all(sql, params)
+    out_path = os.path.join(BASE_DIR, "export.csv")
     with open(out_path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["id","vehicle_id","date","mileage","service_type","description","cost","attachment"])
         for r in rows:
-            w.writerow([r["id"],r["vehicle_id"],r["date"],r["mileage"],r["service_type"],r["description"],r["cost"],r["attachment"]])
+            w.writerow([r.get("id"), r.get("vehicle_id"), r.get("date"), r.get("mileage"),
+                        r.get("service_type"), r.get("description"), r.get("cost"), r.get("attachment")])
     resp = make_response(open(out_path, "rb").read())
     resp.headers["Content-Type"] = "text/csv; charset=utf-8"
     resp.headers["Content-Disposition"] = "attachment; filename=service_entries.csv"
@@ -462,80 +478,86 @@ def export_csv():
 @app.get("/api/stats")
 @login_required
 def stats():
-    conn = get_db(); uid = session["user_id"]
-    by_day = conn.execute("""
+    uid = session["user_id"]
+    by_day = db_all("""
         SELECT e.date AS ymd, SUM(COALESCE(e.cost,0)) AS total_cost, COUNT(*) AS entries
         FROM service_entries e JOIN vehicles v ON v.id=e.vehicle_id
-        WHERE v.owner_id=? GROUP BY e.date ORDER BY e.date
-    """, (uid,)).fetchall()
-    last_mileage = conn.execute("""
-        SELECT v.id, v.make||' '||v.model AS label,
-               (SELECT e.mileage FROM service_entries e WHERE e.vehicle_id=v.id AND e.mileage IS NOT NULL
-                ORDER BY e.date DESC, e.id DESC LIMIT 1) AS mileage
-        FROM vehicles v WHERE v.owner_id=? ORDER BY v.id
-    """, (uid,)).fetchall()
-    conn.close()
-    return jsonify({"by_day":[dict(r) for r in by_day], "last_mileage":[dict(r) for r in last_mileage]})
+        WHERE v.owner_id=:uid
+        GROUP BY e.date
+        ORDER BY e.date
+    """, {"uid": uid})
+    last_mileage = db_all("""
+        SELECT v.id, (v.make || ' ' || v.model) AS label,
+               (SELECT e.mileage FROM service_entries e
+                 WHERE e.vehicle_id=v.id AND e.mileage IS NOT NULL
+                 ORDER BY e.date DESC, e.id DESC LIMIT 1) AS mileage
+        FROM vehicles v
+        WHERE v.owner_id=:uid
+        ORDER BY v.id
+    """, {"uid": uid})
+    return jsonify({"by_day": by_day, "last_mileage": last_mileage})
 
 # --- Przypomnienia ---
 @app.get("/api/reminders")
 @login_required
 def list_reminders():
-    conn = get_db(); uid = session["user_id"]
-    rows = conn.execute("SELECT * FROM reminders WHERE user_id=? ORDER BY COALESCE(due_date,'9999-12-31'), id DESC", (uid,)).fetchall()
+    uid = session["user_id"]
+    rows = db_all("SELECT * FROM reminders WHERE user_id=:uid ORDER BY COALESCE(due_date, DATE '9999-12-31'), id DESC", {"uid": uid})
     result = []
     for r in rows:
         rec = dict(r); due = False
         if rec.get("due_date"):
-            try: due = due or (rec["due_date"] <= datetime.utcnow().date().isoformat())
-            except Exception: pass
+            try:
+                due = due or (str(rec["due_date"]) <= dt.date.today().isoformat())
+            except Exception:
+                pass
         if rec.get("due_mileage") and rec.get("vehicle_id"):
-            last = conn.execute("SELECT MAX(COALESCE(mileage,0)) AS m FROM service_entries WHERE vehicle_id=?", (rec["vehicle_id"],)).fetchone()
-            if last and last["m"] is not None:
-                due = due or (last["m"] >= (rec["due_mileage"] or 0))
-        rec["is_due"] = bool(due); result.append(rec)
-    conn.close()
+            last = db_one("SELECT MAX(COALESCE(mileage,0)) AS m FROM service_entries WHERE vehicle_id=:vid", {"vid": rec["vehicle_id"]})
+            if last and last.get("m") is not None:
+                due = due or (int(last["m"]) >= int(rec["due_mileage"] or 0))
+        rec["is_due"] = bool(due)
+        result.append(rec)
     return jsonify(result)
 
 @app.post("/api/reminders")
 @login_required
 def create_reminder():
-    data = request.get_json(silent=True) or {}
-    title = (data.get("title") or "").strip()
+    d = request.get_json(silent=True) or {}
+    title = (d.get("title") or "").strip()
     if not title: return jsonify({"error":"title_required"}), 400
-    due_date = data.get("due_date") or None
-    due_mileage = data.get("due_mileage") if data.get("due_mileage") not in ("", None) else None
-    vehicle_id = data.get("vehicle_id") if data.get("vehicle_id") not in ("", None) else None
-    notify_email = 1 if str(data.get("notify_email")).lower() in ("1","true","on") else 0
+    due_date = d.get("due_date") or None
+    due_mileage = d.get("due_mileage") if d.get("due_mileage") not in ("", None) else None
+    vehicle_id = d.get("vehicle_id") if d.get("vehicle_id") not in ("", None) else None
+    notify_email = str(d.get("notify_email")).lower() in ("1","true","on")
     try:
-        notify_before_days = int(data.get("notify_before_days")) if data.get("notify_before_days") not in ("", None) else DEFAULT_NOTIFY_BEFORE_DAYS
+        notify_before_days = int(d.get("notify_before_days")) if d.get("notify_before_days") not in ("", None) else DEFAULT_NOTIFY_BEFORE_DAYS
     except Exception:
         notify_before_days = DEFAULT_NOTIFY_BEFORE_DAYS
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("""INSERT INTO reminders(user_id,vehicle_id,title,due_date,due_mileage,notify_email,notify_before_days,created_at)
-                   VALUES (?,?,?,?,?,?,?,?)""",
-                (session["user_id"], vehicle_id, title, due_date, due_mileage, notify_email, notify_before_days, datetime.utcnow().isoformat()))
-    conn.commit(); rid = cur.lastrowid; conn.close()
-    return jsonify({"ok": True, "id": rid})
+    row = db_exec("""
+        INSERT INTO reminders(user_id,vehicle_id,title,due_date,due_mileage,notify_email,notify_before_days,created_at)
+        VALUES (:uid,:vid,:title,:dd,:dm,:ne,:nbd,NOW())
+        RETURNING id
+    """, {"uid": session["user_id"], "vid": vehicle_id, "title": title, "dd": due_date,
+          "dm": due_mileage, "ne": notify_email, "nbd": notify_before_days}, returning=True)
+    return jsonify({"ok": True, "id": row["id"]})
 
 @app.put("/api/reminders/<int:rid>")
 @login_required
 def update_reminder(rid):
-    data = request.get_json(silent=True) or {}
-    fields, params = [], []
+    d = request.get_json(silent=True) or {}
+    fields, params = [], {"rid": rid, "uid": session["user_id"]}
     for k in ("title","due_date","due_mileage","vehicle_id","completed_at","notify_email","notify_before_days"):
-        if k in data: fields.append(f"{k}=?"); params.append(data[k])
+        if k in d:
+            fields.append(f"{k} = :{k}")
+            params[k] = d[k]
     if not fields: return jsonify({"error":"no_fields"}), 400
-    params.extend([rid, session["user_id"]])
-    conn = get_db(); conn.execute("UPDATE reminders SET " + ",".join(fields) + " WHERE id=? AND user_id=?", params)
-    conn.commit(); conn.close()
+    db_exec("UPDATE reminders SET " + ", ".join(fields) + " WHERE id=:rid AND user_id=:uid", params)
     return jsonify({"ok": True})
 
 @app.delete("/api/reminders/<int:rid>")
 @login_required
 def delete_reminder(rid):
-    conn = get_db(); conn.execute("DELETE FROM reminders WHERE id=? AND user_id=?", (rid, session["user_id"]))
-    conn.commit(); conn.close()
+    db_exec("DELETE FROM reminders WHERE id=:rid AND user_id=:uid", {"rid": rid, "uid": session["user_id"]})
     return jsonify({"ok": True})
 
 # --- Frontend (carbon + czerwony) ---
@@ -743,7 +765,7 @@ INDEX_HTML = """
     async function register(){ try{
       const email=regEmail.value||'', name=regName.value||'', pass=regPass.value||'';
       if(!email||!name||!pass) return alert('Uzupełnij e-mail, imię i hasło.');
-      const res=await api('/api/register',{method:'POST',body:JSON.stringify({email:email,name:name,password:pass}),headers:{'Content-Type':'application/json'}});
+      await api('/api/register',{method:'POST',body:JSON.stringify({email:email,name:name,password:pass}),headers:{'Content-Type':'application/json'}});
       toast('Konto utworzone. Zaloguj się.');
     }catch(e){ alert('Rejestracja nieudana: '+(e.message||'')); } }
 
@@ -757,22 +779,22 @@ INDEX_HTML = """
 
     async function loadVehicles(){ const list=await api('/api/vehicles'); const sel=vehicleSelect, rsel=document.getElementById('r_vehicle');
       sel.innerHTML=''; if(rsel) rsel.innerHTML='<option value=\"\">—</option>';
-      list.forEach(v=>{{ const label=`${{v.make}} ${{v.model}} ${{v.year||''}} ${{v.reg_plate||''}}`.trim();
+      list.forEach(v=>{ const label=(v.make+' '+v.model+' '+(v.year||'')+' '+(v.reg_plate||'')).trim();
         const o=document.createElement('option'); o.value=v.id; o.textContent=label; sel.appendChild(o);
-        if(rsel){{ const o2=document.createElement('option'); o2.value=v.id; o2.textContent=label; rsel.appendChild(o2); }}
-      }});
-      if(list.length){{ currentVehicleId=list[0].id; sel.value=currentVehicleId; }}
+        if(rsel){ const o2=document.createElement('option'); o2.value=v.id; o2.textContent=label; rsel.appendChild(o2); }
+      });
+      if(list.length){ currentVehicleId=list[0].id; sel.value=currentVehicleId; }
     }
 
     async function addVehicle(){ try{
-      const body={{make:make.value,model:model.value,year:parseInt(year.value||0)||null,vin:vin.value,reg_plate:reg_plate.value}};
-      await api('/api/vehicles',{method:'POST',body:JSON.stringify(body),headers:{{'Content-Type':'application/json'}}});
+      const body={make:make.value,model:model.value,year:parseInt(year.value||0)||null,vin:vin.value,reg_plate:reg_plate.value};
+      await api('/api/vehicles',{method:'POST',body:JSON.stringify(body),headers:{'Content-Type':'application/json'}});
       toast('Dodano pojazd'); await loadVehicles(); await loadStats(); await loadReminders();
     }catch(e){ alert('Błąd dodawania pojazdu'); } }
 
     async function deleteSelectedVehicle(){ if(!vehicleSelect.value) return alert('Wybierz pojazd');
       if(!confirm('Usunąć wybrany pojazd wraz z wpisami?')) return;
-      await api('/api/vehicles/'+vehicleSelect.value,{{method:'DELETE'}}); toast('Usunięto pojazd');
+      await api('/api/vehicles/'+vehicleSelect.value,{method:'DELETE'}); toast('Usunięto pojazd');
       await loadVehicles(); await loadStats(); await loadReminders(); await refreshEntries();
     }
 
@@ -780,95 +802,96 @@ INDEX_HTML = """
       const fd=new FormData(); fd.append('vehicle_id',vehicleSelect.value); fd.append('date',date.value); fd.append('mileage',mileage.value);
       fd.append('service_type',service_type.value); fd.append('description',description.value); fd.append('cost',cost.value);
       const f=file.files[0]; if(f) fd.append('file',f);
-      try{ if(editEntryId){{
-          const body={{date:date.value,mileage:mileage.value,service_type:service_type.value,description:description.value,cost:cost.value}};
-          await api('/api/entries/'+editEntryId,{{method:'PUT',body:JSON.stringify(body),headers:{{'Content-Type':'application/json'}}}});
+      try{ if(editEntryId){
+          const body={date:date.value,mileage:mileage.value,service_type:service_type.value,description:description.value,cost:cost.value};
+          await api('/api/entries/'+editEntryId,{method:'PUT',body:JSON.stringify(body),headers:{'Content-Type':'application/json'}});
           editEntryId=null; document.querySelector('button.primary').textContent='Dodaj wpis';
-        }} else {{ await api('/api/entries',{{method:'POST',body:fd}}); file.value=''; }}
+        } else {
+          await api('/api/entries',{method:'POST',body:fd}); file.value='';
+        }
         toast('Zapisano'); await refreshEntries();
-      }}catch(e){{ alert('Błąd zapisu wpisu'); }}
+      }catch(e){ alert('Błąd zapisu wpisu'); }
     }
 
-    function editEntry(id,e){{ editEntryId=id; date.value=e.date||''; mileage.value=e.mileage||''; service_type.value=e.service_type||''; description.value=e.description||''; cost.value=e.cost||'';
-      document.querySelector('button.primary').textContent='Zapisz zmiany'; window.scrollTo({{top:0,behavior:'smooth'}});
-    }}
+    function editEntry(id,e){ editEntryId=id; date.value=e.date||''; mileage.value=e.mileage||''; service_type.value=e.service_type||''; description.value=e.description||''; cost.value=e.cost||'';
+      document.querySelector('button.primary').textContent='Zapisz zmiany'; window.scrollTo({top:0,behavior:'smooth'});
+    }
+    async function delEntry(id){ if(!confirm('Usunąć wpis?')) return; await api('/api/entries/'+id,{method:'DELETE'}); toast('Usunięto'); refreshEntries(); }
 
-    async function delEntry(id){{ if(!confirm('Usunąć wpis?')) return; await api('/api/entries/'+id,{{method:'DELETE'}}); toast('Usunięto'); refreshEntries(); }}
-
-    async function refreshEntries(){{
+    async function refreshEntries(){
       currentVehicleId = vehicleSelect.value || null;
       const q = search.value || '';
       const params=new URLSearchParams(); if(currentVehicleId) params.set('vehicle_id',currentVehicleId); if(q) params.set('q',q);
-      let list=[]; try{{ list=await api('/api/entries?'+params.toString()); }}catch(e){{ return; }}
+      let list=[]; try{ list=await api('/api/entries?'+params.toString()); }catch(e){ return; }
       const tb=entriesTbody; tb.innerHTML='';
-      list.forEach(e=>{{
+      list.forEach(e=>{
         const tr=document.createElement('tr');
         tr.innerHTML = '<td>'+e.date+'</td>'
                      + '<td>'+(e.mileage?.toLocaleString?.("pl-PL")||"")+'</td>'
                      + '<td>'+e.service_type+'</td>'
                      + '<td>'+(e.description||"")+'</td>'
-                     + '<td>'+Number(e.cost||0).toLocaleString("pl-PL",{{minimumFractionDigits:2,maximumFractionDigits:2}})+'</td>'
+                     + '<td>'+Number(e.cost||0).toLocaleString("pl-PL",{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'
                      + '<td>'+(e.attachment?('<a target=_blank href="/uploads/'+e.attachment+'">plik</a>'):"")+'</td>'
                      + '<td class=actions>'
                      +   '<button onclick=\'editEntry('+e.id+','+JSON.stringify(e).replace(/`/g,"\\`")+')\'>Edytuj</button> '
                      +   '<button onclick="delEntry('+e.id+')">Usuń</button>'
                      + '</td>';
         tb.appendChild(tr);
-      }});
+      });
       await loadStats();
-    }}
+    }
 
-    async function loadStats(){{
-      try{{
+    async function loadStats(){
+      try{
         const s=await api('/api/stats'); const range=parseInt(document.getElementById('dash_range')?.value||'0',10);
-        let byDay=s.by_day||[]; if(range>0&&byDay.length>0){{ const cut=new Date(); cut.setDate(cut.getDate()-range+1);
-          byDay=byDay.filter(x=>{{const d=new Date((x.ymd||'')+'T00:00:00'); return !isNaN(d)&&d>=cut;}}); }}
+        let byDay=s.by_day||[];
+        if(range>0&&byDay.length>0){ const cut=new Date(); cut.setDate(cut.getDate()-range+1);
+          byDay=byDay.filter(x=>{const d=new Date((x.ymd||'')+'T00:00:00'); return !isNaN(d)&&d>=cut;}); }
         byDay.sort((a,b)=> (a.ymd<b.ymd?-1:1));
         const labels=byDay.map(x=>x.ymd), costs=byDay.map(x=>Number(x.total_cost||0));
         const ctx=document.getElementById('chartCost')?.getContext('2d');
-        if(ctx){{ if(window._chartCost) window._chartCost.destroy();
-          window._chartCost=new Chart(ctx,{{type:'line',data:{{labels,datasets:[{{label:'Koszt (PLN) / dzień',data:costs,tension:.25,fill:false}}]}},
-            options:{{responsive:true,interaction:{{mode:'index',intersect:false}},
-              scales:{{x:{{grid:{{color:'#222'}},ticks:{{color:'#f3f4f6'}}}},y:{{grid:{{color:'#222'}},ticks:{{color:'#f3f4f6'}}}}}},
-              plugins:{{legend:{{labels:{{color:'#f3f4f6'}}}}}} }}); }}
-        const tb=document.getElementById('mileageTbody'); if(tb){{ tb.innerHTML='';
-          (s.last_mileage||[]).forEach(r=>{{const tr=document.createElement('tr'); tr.innerHTML='<td>'+(r.label||'-')+'</td><td>'+Number(r.mileage||0).toLocaleString('pl-PL')+'</td>'; tb.appendChild(tr);}}); }}
-      }}catch(e){{}}
-    }}
+        if(ctx){ if(window._chartCost) window._chartCost.destroy();
+          window._chartCost=new Chart(ctx,{type:'line',data:{labels,datasets:[{label:'Koszt (PLN) / dzień',data:costs,tension:.25,fill:false}]},
+            options:{responsive:true,interaction:{mode:'index',intersect:false},
+              scales:{x:{grid:{color:'#222'},ticks:{color:'#f3f4f6'}},y:{grid:{color:'#222'},ticks:{color:'#f3f4f6'}}},
+              plugins:{legend:{labels:{color:'#f3f4f6'}}}}); }
+        const tb=document.getElementById('mileageTbody'); if(tb){ tb.innerHTML='';
+          (s.last_mileage||[]).forEach(r=>{const tr=document.createElement('tr'); tr.innerHTML='<td>'+(r.label||'-')+'</td><td>'+Number(r.mileage||0).toLocaleString('pl-PL')+'</td>'; tb.appendChild(tr);}); }
+      }catch(e){}
+    }
 
-    async function loadReminders(){{
-      try{{ const list=await api('/api/reminders'); const tb=document.getElementById('r_tbody'); if(!tb) return; tb.innerHTML='';
-        list.forEach(r=>{{ const tr=document.createElement('tr'); const due=r.is_due?'🔔':'';
+    async function loadReminders(){
+      try{ const list=await api('/api/reminders'); const tb=document.getElementById('r_tbody'); if(!tb) return; tb.innerHTML='';
+        list.forEach(r=>{
+          const tr=document.createElement('tr'); const due=r.is_due?'🔔':'';
           tr.innerHTML = '<td>'+due+'</td><td>'+r.title+'</td><td>'+(r.due_date||'')+'</td><td>'+(r.due_mileage||'')+'</td>'
                        + '<td>'+(r.notify_email?'tak':'nie')+'</td><td>'+(r.notify_before_days??'')+'</td>'
                        + '<td>'+(r.vehicle_id||'')+'</td>'
                        + '<td class=actions><button onclick="completeReminder('+r.id+')">Zakończ</button> <button onclick="deleteReminder('+r.id+')">Usuń</button></td>';
-          tb.appendChild(tr); }});
-      }}catch(e){{}}
-    }}
-
-    async function loadReminderVehicles(){{
-      try{{ const list=await api('/api/vehicles'); const rsel=document.getElementById('r_vehicle'); if(!rsel) return; rsel.innerHTML='<option value=\"\">—</option>';
-        list.forEach(v=>{{const o=document.createElement('option'); o.value=v.id; o.textContent=(v.make+' '+v.model+' '+(v.year||'')+' '+(v.reg_plate||'')).trim(); rsel.appendChild(o);}});
-      }}catch(e){{}}
-    }}
-
-    async function addReminder(){{
+          tb.appendChild(tr);
+        });
+      }catch(e){}
+    }
+    async function loadReminderVehicles(){
+      try{ const list=await api('/api/vehicles'); const rsel=document.getElementById('r_vehicle'); if(!rsel) return; rsel.innerHTML='<option value=\"\">—</option>';
+        list.forEach(v=>{const o=document.createElement('option'); o.value=v.id; o.textContent=(v.make+' '+v.model+' '+(v.year||'')+' '+(v.reg_plate||'')).trim(); rsel.appendChild(o);});
+      }catch(e){}
+    }
+    async function addReminder(){
       const selType=document.getElementById('r_type'); const custom=document.getElementById('r_type_custom');
       const typeVal = selType && selType.value==='Inne' ? (custom.value||'').trim() : (selType?selType.value:'');
       if(!typeVal) return alert('Wybierz rodzaj lub wpisz własny powód.');
-      const body={{ title:typeVal, due_date:r_date.value||null, due_mileage:r_mileage.value||null, vehicle_id:r_vehicle.value||null,
-                    notify_email:document.getElementById('r_notify_mail').checked,
-                    notify_before_days:parseInt(r_notify_days.value||'')||null }};
-      await api('/api/reminders',{{method:'POST',body:JSON.stringify(body),headers:{{'Content-Type':'application/json'}}}});
+      const body={ title:typeVal, due_date:r_date.value||null, due_mileage:r_mileage.value||null, vehicle_id:r_vehicle.value||null,
+                   notify_email:document.getElementById('r_notify_mail').checked,
+                   notify_before_days:parseInt(r_notify_days.value||'')||null };
+      await api('/api/reminders',{method:'POST',body:JSON.stringify(body),headers:{'Content-Type':'application/json'}});
       toast('Dodano przypomnienie');
       if(selType) selType.value='Przegląd techniczny'; if(custom) custom.value=''; r_date.value=''; r_mileage.value='';
       document.getElementById('r_type_custom_wrap').style.display='none'; document.getElementById('r_notify_mail').checked=false; r_notify_days.value='';
       await loadReminders();
-    }}
-
-    async function completeReminder(id){{ await api('/api/reminders/'+id,{{method:'PUT',body:JSON.stringify({{completed_at:new Date().toISOString()}}),headers:{{'Content-Type':'application/json'}}}}); await loadReminders(); }}
-    async function deleteReminder(id){{ await api('/api/reminders/'+id,{{method:'DELETE'}}); await loadReminders(); }}
+    }
+    async function completeReminder(id){ await api('/api/reminders/'+id,{method:'PUT',body:JSON.stringify({completed_at:new Date().toISOString()}),headers:{'Content-Type':'application/json'}}); await loadReminders(); }
+    async function deleteReminder(id){ await api('/api/reminders/'+id,{method:'DELETE'}); await loadReminders(); }
   </script>
 </body>
 </html>
@@ -880,14 +903,13 @@ def index_page():
 
 if __name__ == "__main__":
     init_db()
-    print(f"\n{APP_TITLE} — start na http://127.0.0.1:5000\n")
+    print(f"\n{APP_TITLE} — start lokalnie na http://127.0.0.1:5000 (Railway użyje gunicorn)\n")
     if _HAS_APS:
         scheduler = BackgroundScheduler(daemon=True)
         scheduler.add_job(run_email_reminder_job, "interval", hours=1, next_run_time=datetime.utcnow())
         scheduler.start()
         print("[INFO] APScheduler działa (maile co godzinę).")
     else:
-        print("[WARN] Brak APScheduler — przypomnienia wyślę przynajmniej raz przy starcie.")
         try: run_email_reminder_job()
-        except Exception as e: print("[WARN] run_email_reminder_job przy starcie:", e)
+        except Exception as e: print("[WARN] job na starcie:", e)
     app.run(debug=True, host="127.0.0.1", port=5000)
