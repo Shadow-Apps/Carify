@@ -645,37 +645,24 @@ INDEX_HTML = """
       <hr style="border-color:#262626; margin:14px 0;">
 
       <h3>Pojazdy</h3>
-<div>
-  <label>Marka</label>
-  <select id="makeSelect" onchange="onMakeChange()"></select>
-  <div id="makeCustomWrap" style="display:none; margin-top:8px;">
-    <label>Inna marka</label>
-    <input id="makeCustom" placeholder="np. Zastava">
-  </div>
-
-  <label>Model</label>
-  <select id="modelSelect"></select>
-  <div id="modelCustomWrap" style="display:none; margin-top:8px;">
-    <label>Inny model</label>
-    <input id="modelCustom" placeholder="np. 750">
-  </div>
-
-  <div class="row" style="margin-top:8px;">
-    <div><label>Rok</label><input id="year" type="number" placeholder="2018"></div>
-    <div><label>VIN</label><input id="vin" placeholder="WVWZZZ..."></div>
-  </div>
-  <label>Nr rej.</label><input id="reg_plate" placeholder="WX 1234Y">
-  <div style="margin-top:10px;"><button type="button" class="primary" onclick="addVehicle()">Dodaj pojazd</button></div>
-</div>
-<div style="margin-top:12px;">
-  <label>Wybierz pojazd</label>
-  <select id="vehicleSelect" onchange="refreshEntries()"></select>
-</div>
-<div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
-  <button type="button" onclick="deleteSelectedVehicle()">Usuń wybrany pojazd</button>
-  <a href="/api/export/csv" onclick="if(!window.loggedIn){ alert('Najpierw zaloguj się.'); return false; }">Eksport CSV</a>
-</div>
-
+      <div>
+        <label>Marka</label><input id="make" placeholder="Toyota">
+        <label>Model</label><input id="model" placeholder="Corolla">
+        <div class="row">
+          <div><label>Rok</label><input id="year" type="number" placeholder="2018"></div>
+          <div><label>VIN</label><input id="vin" placeholder="WVWZZZ..."></div>
+        </div>
+        <label>Nr rej.</label><input id="reg_plate" placeholder="WX 1234Y">
+        <div style="margin-top:10px;"><button type="button" class="primary" onclick="addVehicle()">Dodaj pojazd</button></div>
+      </div>
+      <div style="margin-top:12px;">
+        <label>Wybierz pojazd</label>
+        <select id="vehicleSelect" onchange="refreshEntries()"></select>
+      </div>
+      <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+        <button type="button" onclick="deleteSelectedVehicle()">Usuń wybrany pojazd</button>
+        <a href="/api/export/csv" onclick="if(!window.loggedIn){ alert('Najpierw zaloguj się.'); return false; }">Eksport CSV</a>
+      </div>
     </section>
 
     <section class="card">
@@ -796,124 +783,6 @@ INDEX_HTML = """
         toast('Konto utworzone. Zaloguj się.');
       }catch(e){ alert('Rejestracja nieudana: ' + (e.message||'')); }
     };
-    // ====== BAZA: marki → modele (Europa; popularne) ======
-const CAR_DATA = {
-  "Audi": ["A1","A3","A4","A5","A6","A7","A8","Q2","Q3","Q5","Q7","Q8","TT","e-tron"],
-  "BMW": ["1 Series","2 Series","3 Series","4 Series","5 Series","7 Series","X1","X3","X5","X7","i3","i4","iX"],
-  "Mercedes-Benz": ["A-Class","B-Class","C-Class","E-Class","S-Class","GLA","GLB","GLC","GLE","GLS","CLA","CLS","EQC","EQA"],
-  "Volkswagen": ["up!","Polo","Golf","Passat","Tiguan","T-Roc","Touareg","Arteon","ID.3","ID.4","ID.5"],
-  "Škoda": ["Fabia","Scala","Octavia","Superb","Kamiq","Karoq","Kodiaq","Enyaq"],
-  "SEAT": ["Ibiza","Arona","Leon","Ateca","Tarraco"],
-  "Cupra": ["Born","Formentor","Ateca","Leon"],
-  "Renault": ["Clio","Captur","Megane","Austral","Arkana","Kadjar","Koleos","Twingo","Scenic"],
-  "Dacia": ["Sandero","Logan","Duster","Jogger","Spring"],
-  "Peugeot": ["108","208","308","508","2008","3008","5008","Rifter","e-208","e-2008"],
-  "Citroën": ["C1","C3","C3 Aircross","C4","C4 Cactus","C5 Aircross","Berlingo","ë-C4"],
-  "DS": ["DS 3","DS 4","DS 7","DS 9"],
-  "Opel": ["Corsa","Astra","Insignia","Mokka","Crossland","Grandland","Combo"],
-  "Vauxhall": ["Corsa","Astra","Insignia","Mokka","Crossland","Grandland"],
-  "Ford": ["Ka+","Fiesta","Puma","Focus","Mondeo","Kuga","EcoSport","S-Max","Galaxy","Mustang","Mach-E"],
-  "Fiat": ["500","500X","Panda","Tipo","Punto","Doblo"],
-  "Alfa Romeo": ["Giulia","Giulietta","Stelvio","Tonale","MiTo"],
-  "Lancia": ["Ypsilon"],
-  "Abarth": ["595","695"],
-  "Toyota": ["Aygo","Yaris","Corolla","Camry","C-HR","RAV4","Auris","Avensis","Highlander","Proace"],
-  "Lexus": ["CT","IS","ES","GS","NX","RX","UX","LC"],
-  "Nissan": ["Micra","Leaf","Juke","Qashqai","X-Trail","Note"],
-  "Mazda": ["2","3","6","CX-3","CX-30","CX-5","MX-5"],
-  "Honda": ["Jazz","Civic","Accord","HR-V","CR-V","e"],
-  "Subaru": ["Impreza","XV","Forester","Outback","Levorg"],
-  "Suzuki": ["Swift","Ignis","Baleno","Vitara","S-Cross","Jimny"],
-  "Hyundai": ["i10","i20","i30","Elantra","Tucson","Kona","Santa Fe","Ioniq","Ioniq 5"],
-  "Kia": ["Picanto","Rio","Ceed","Proceed","Stonic","Sportage","Sorento","Niro","EV6"],
-  "Volvo": ["S60","S90","V60","V90","XC40","XC60","XC90","EX30","EX90"],
-  "Saab": ["9-3","9-5"],
-  "Jaguar": ["XE","XF","XJ","E-Pace","F-Pace","I-Pace","F-Type"],
-  "Land Rover": ["Defender","Discovery Sport","Discovery","Range Rover Evoque","Range Rover Velar","Range Rover Sport","Range Rover"],
-  "MINI": ["3 Door","5 Door","Clubman","Countryman","Convertible","Electric"],
-  "Porsche": ["718","911","Taycan","Panamera","Macan","Cayenne"],
-  "Tesla": ["Model 3","Model Y","Model S","Model X"],
-  "Smart": ["fortwo","forfour","#1"],
-  "Mitsubishi": ["Space Star","ASX","Eclipse Cross","Outlander","L200"],
-  "Jeep": ["Renegade","Compass","Cherokee","Grand Cherokee","Wrangler"],
-  "Cupra": ["Born","Formentor","Ateca","Leon"],
-  "Saab": ["9-3","9-5"]
-};
-// Dodajemy globalnie dopisywalne opcji „Inna marka/ Inny model”
-const OTHER_MAKE = "Inna marka…";
-const OTHER_MODEL = "Inny model…";
-
-function populateMakes() {
-  const makeSel = document.getElementById('makeSelect');
-  if (!makeSel) return;
-  makeSel.innerHTML = '';
-  const makes = Object.keys(CAR_DATA).sort();
-  // Pierwsze opcje
-  const def = document.createElement('option'); def.value = ''; def.textContent = '— wybierz markę —'; makeSel.appendChild(def);
-  makes.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; makeSel.appendChild(o); });
-  const other = document.createElement('option'); other.value = OTHER_MAKE; other.textContent = OTHER_MAKE; makeSel.appendChild(other);
-  // Zainicjalizuj modele
-  onMakeChange();
-}
-
-function onMakeChange() {
-  const makeSel = document.getElementById('makeSelect');
-  const modelSel = document.getElementById('modelSelect');
-  const makeCustomWrap = document.getElementById('makeCustomWrap');
-  const modelCustomWrap = document.getElementById('modelCustomWrap');
-
-  const makeVal = makeSel.value;
-  const showMakeCustom = (makeVal === OTHER_MAKE);
-  makeCustomWrap.style.display = showMakeCustom ? 'block' : 'none';
-
-  modelSel.innerHTML = '';
-  const def = document.createElement('option'); def.value=''; def.textContent='— wybierz model —'; modelSel.appendChild(def);
-
-  let models = [];
-  if (makeVal && makeVal !== OTHER_MAKE) {
-    models = CAR_DATA[makeVal] || [];
-  }
-  models.forEach(md => { const o = document.createElement('option'); o.value = md; o.textContent = md; modelSel.appendChild(o); });
-
-  const other = document.createElement('option'); other.value = OTHER_MODEL; other.textContent = OTHER_MODEL; modelSel.appendChild(other);
-
-  // schowaj pole „Inny model” dopóki nie zostanie wybrane
-  modelCustomWrap.style.display = 'none';
-}
-
-document.addEventListener('change', (ev) => {
-  if (ev.target && ev.target.id === 'modelSelect') {
-    const modelCustomWrap = document.getElementById('modelCustomWrap');
-    modelCustomWrap.style.display = (ev.target.value === OTHER_MODEL) ? 'block' : 'none';
-  }
-});
-
-function getSelectedMakeModel() {
-  const makeSel = document.getElementById('makeSelect');
-  const modelSel = document.getElementById('modelSelect');
-  const makeCustom = document.getElementById('makeCustom');
-  const modelCustom = document.getElementById('modelCustom');
-
-  let make = '';
-  let model = '';
-
-  if (makeSel.value === OTHER_MAKE) {
-    make = (makeCustom.value || '').trim();
-  } else {
-    make = makeSel.value || '';
-  }
-
-  if (modelSel.value === OTHER_MODEL) {
-    model = (modelCustom.value || '').trim();
-  } else {
-    model = modelSel.value || '';
-  }
-
-  return { make, model };
-}
-
-// Zainicjuj listy przy załadowaniu strony
-document.addEventListener('DOMContentLoaded', populateMakes);
 
     window.login = async function(){
       try{
