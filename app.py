@@ -728,22 +728,18 @@ INDEX_HTML = """
   <title>{APP_TITLE}</title>
 
   <script>
+    // Helper fetch z ładnymi błędami
     async function api(path, opts = {}) {
-      try {
-        const res = await fetch(path, Object.assign({ headers: {} }, opts));
-        const ct = res.headers.get('content-type') || '';
-        let data = null;
-        if (ct.includes('application/json')) data = await res.json().catch(() => null);
-        else data = await res.text().catch(() => null);
-        if (!res.ok) {
-          const msg = (data && (data.error || data.detail || data.message)) || String(data) || 'Błąd';
-          throw new Error('[' + res.status + '] ' + msg);
-        }
-        return data;
-      } catch (e) {
-        console.error('[API]', path, e);
-        throw e;
+      const res = await fetch(path, Object.assign({ headers: {} }, opts));
+      const ct = res.headers.get('content-type') || '';
+      let data = null;
+      if (ct.includes('application/json')) data = await res.json().catch(() => null);
+      else data = await res.text().catch(() => null);
+      if (!res.ok) {
+        const msg = (data && (data.error || data.detail || data.message)) || String(data) || 'Błąd';
+        throw new Error('[' + res.status + '] ' + msg);
       }
+      return data;
     }
     window.addEventListener('error', ev => { console.error('[window.error]', ev.message); alert('Błąd JS: ' + ev.message); });
     window.addEventListener('unhandledrejection', ev => { console.error('[unhandledrejection]', ev.reason); alert('Błąd: ' + (ev.reason?.message || ev.reason || 'Nieznany')); });
@@ -754,10 +750,12 @@ INDEX_HTML = """
     :root { --bg:#0a0a0a; --bg2:#1a0000; --card:#141414; --text:#f3f4f6; --muted:#9ca3af; --border:#262626; --accent:#ff3232; --accent-600:#cc2727; --r:14px; --pad:14px; --gap:18px; --sh:0 10px 28px rgba(0,0,0,.7) }
     * { box-sizing:border-box }
     body { margin:0; background:linear-gradient(180deg,var(--bg),var(--bg2)); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial }
-    header { position:sticky; top:0; z-index:10; background:#0f0f0f; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:var(--gap); padding:var(--pad) calc(var(--pad)*1.5) }
+    header { position:sticky; top:0; z-index:20; background:#0f0f0f; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:var(--gap); padding:var(--pad) calc(var(--pad)*1.5) }
     .brand { display:flex; align-items:center; gap:10px; font-weight:800 }
     .brand svg { width:28px; height:28px }
-    main { padding:calc(var(--pad)*1.5); display:grid; grid-template-columns:minmax(340px,400px) 1fr; gap:var(--gap); align-items:start }
+    .topbar { position:sticky; top:56px; z-index:15; background:#111; border-bottom:1px solid var(--border); padding:10px calc(var(--pad)*1.5); display:flex; gap:10px; align-items:center; flex-wrap:wrap }
+    .pill { padding:8px 10px; border:1px solid var(--border); border-radius:10px; background:#0f0f0f }
+    main { padding:calc(var(--pad)*1.5); display:grid; grid-template-columns:minmax(360px,420px) 1fr; gap:var(--gap); align-items:start }
     .card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:var(--pad); box-shadow:var(--sh) }
     h3 { margin:0 0 10px }
     label { display:block; font-size:12px; color:var(--muted); margin:8px 0 6px }
@@ -769,9 +767,10 @@ INDEX_HTML = """
     a { color:#ff7b7b; text-decoration:none }
     a:hover { text-decoration:underline }
     .row { display:grid; grid-template-columns:1fr 1fr; gap:var(--gap) }
+    .row-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:var(--gap) }
     @media (max-width:1100px) {
       main { grid-template-columns:1fr }
-      .row { grid-template-columns:1fr }
+      .row, .row-3 { grid-template-columns:1fr }
     }
     table { width:100%; border-collapse:collapse; background:#0f0f0f; border:1px solid var(--border); border-radius:var(--r); overflow:hidden }
     thead th { background:#1f1f1f; color:#ff9c9c }
@@ -781,6 +780,11 @@ INDEX_HTML = """
     .toast { position:fixed; right:16px; bottom:16px; background:var(--accent); color:#fff; padding:10px 14px; border-radius:10px; display:none; box-shadow:var(--sh) }
     canvas { background:radial-gradient(ellipse at top,#151515,#0d0d0d); border:1px solid var(--border); border-radius:12px; padding:8px; max-height:260px }
     .section-dashboard { margin:0 calc(var(--pad)*1.5) calc(var(--pad)*1.5); max-height:560px; overflow:auto }
+
+    /* MODAL */
+    .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.65); display:none; align-items:center; justify-content:center; z-index:50; }
+    .modal { width:min(440px, 92vw); background:#141414; border:1px solid var(--border); border-radius:14px; padding:18px; box-shadow:0 20px 60px rgba(0,0,0,.6) }
+    .modal header { position:static; background:transparent; border:0; padding:0 0 8px; display:flex; justify-content:space-between; align-items:center }
   </style>
 </head>
 <body>
@@ -796,28 +800,20 @@ INDEX_HTML = """
     </div>
     <div style="margin-left:auto; display:flex; gap:10px; align-items:center;">
       <span id="userName" class="muted"></span>
-      <button type="button" onclick="logout()">Wyloguj</button>
+      <button type="button" id="authBtn" onclick="openAuthModal()">Zaloguj / Zarejestruj</button>
+      <button type="button" id="logoutBtn" style="display:none" onclick="logout()">Wyloguj</button>
     </div>
   </header>
 
+  <!-- Górny pasek: aktualny pojazd -->
+  <div class="topbar">
+    <strong>Aktualny pojazd:</strong>
+    <select id="vehicleSelect" class="pill" onchange="refreshEntries()"></select>
+    <span class="muted" style="font-size:12px">Na ten pojazd zapisują się wpisy i przypomnienia</span>
+  </div>
+
   <main>
     <section class="card">
-      <h3>Konto</h3>
-      <div id="authBox">
-        <div class="row">
-          <div><label>Email</label><input id="regEmail" placeholder="uzytkownik@domena.pl"></div>
-          <div><label>Imię</label><input id="regName" placeholder="Jan Kowalski"></div>
-        </div>
-        <label>Hasło</label><input id="regPass" type="password" placeholder="********">
-        <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
-          <button type="button" class="primary" onclick="register()">Rejestracja</button>
-          <button type="button" onclick="login()">Logowanie</button>
-        </div>
-        <p class="muted" style="font-size:12px; margin-top:8px;">Utwórz konto lub zaloguj się, aby zarządzać pojazdami i wpisami.</p>
-      </div>
-
-      <hr style="border-color:#262626; margin:14px 0;">
-
       <h3>Pojazdy</h3>
       <div>
         <label>Marka</label>
@@ -833,7 +829,10 @@ INDEX_HTML = """
         </div>
 
         <div class="row" style="margin-top:8px;">
-          <div><label>Rok</label><input id="year" type="number" placeholder="2018"></div>
+          <div>
+            <label>Rok</label>
+            <select id="year"></select>
+          </div>
           <div>
             <label>Paliwo</label>
             <select id="fuel">
@@ -845,20 +844,39 @@ INDEX_HTML = """
           </div>
         </div>
 
-        <label>Nr rej.</label><input id="reg_plate" placeholder="WX 1234Y">
+        <label>Nr rej.</label>
+        <input id="reg_plate" placeholder="WX1234Y" oninput="enforcePlate(this)" maxlength="10">
         <div style="margin-top:10px;"><button type="button" class="primary" onclick="addVehicle()">Dodaj pojazd</button></div>
       </div>
 
-      <div style="margin-top:12px;">
-        <label>Wybierz pojazd</label>
-        <select id="vehicleSelect" onchange="refreshEntries()"></select>
-      </div>
       <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
         <button type="button" onclick="deleteSelectedVehicle()">Usuń wybrany pojazd</button>
         <a href="/api/export/csv" onclick="if(!window.loggedIn){ alert('Najpierw zaloguj się.'); return false; }">Eksport CSV</a>
         <label class="muted" style="font-size:12px;">
           Import CSV: <input id="importCsv" type="file" accept=".csv" style="width:auto;display:inline" onchange="importCsvFile(event)">
         </label>
+      </div>
+
+      <hr style="border-color:#262626; margin:16px 0;">
+      <h3>Harmonogram serwisów okresowych</h3>
+      <div class="row">
+        <div><label>Pojazd (opcjonalnie)</label><select id="s_vehicle"></select></div>
+        <div><label>Rodzaj (np. Wymiana oleju)</label><input id="s_kind" placeholder="Wymiana oleju"></div>
+      </div>
+      <div class="row">
+        <div><label>Co ile miesięcy</label><input id="s_interval_m" type="number" placeholder="np. 12"></div>
+        <div><label>Co ile km</label><input id="s_interval_km" type="number" placeholder="np. 15000"></div>
+      </div>
+      <div class="row">
+        <div><label>Ostatni serwis — data</label><input id="s_last_date" type="date"></div>
+        <div><label>Ostatni serwis — przebieg</label><input id="s_last_mil" type="number"></div>
+      </div>
+      <div style="margin-top:8px;"><button type="button" class="primary" onclick="addSchedule()">Dodaj harmonogram</button></div>
+      <div style="margin-top:12px; overflow:auto;">
+        <table>
+          <thead><tr><th>Rodzaj</th><th>Interwał</th><th>Następny termin</th><th>Pojazd</th><th></th></tr></thead>
+          <tbody id="s_tbody"></tbody>
+        </table>
       </div>
     </section>
 
@@ -889,7 +907,6 @@ INDEX_HTML = """
       </div>
 
       <hr style="border-color:#262626; margin:16px 0;">
-
       <h3>Przypomnienia</h3>
       <div class="row">
         <div>
@@ -923,30 +940,6 @@ INDEX_HTML = """
           <tbody id="r_tbody"></tbody>
         </table>
       </div>
-
-      <hr style="border-color:#262626; margin:16px 0;">
-
-      <h3>Harmonogram serwisów okresowych</h3>
-      <div class="row">
-        <div><label>Pojazd (opcjonalnie)</label><select id="s_vehicle"></select></div>
-        <div><label>Rodzaj (np. Wymiana oleju)</label><input id="s_kind" placeholder="Wymiana oleju"></div>
-      </div>
-      <div class="row">
-        <div><label>Co ile miesięcy</label><input id="s_interval_m" type="number" placeholder="np. 12"></div>
-        <div><label>Co ile km</label><input id="s_interval_km" type="number" placeholder="np. 15000"></div>
-      </div>
-      <div class="row">
-        <div><label>Ostatni serwis — data</label><input id="s_last_date" type="date"></div>
-        <div><label>Ostatni serwis — przebieg</label><input id="s_last_mil" type="number"></div>
-      </div>
-      <div style="margin-top:8px;"><button type="button" class="primary" onclick="addSchedule()">Dodaj harmonogram</button></div>
-
-      <div style="margin-top:12px; overflow:auto;">
-        <table>
-          <thead><tr><th>Rodzaj</th><th>Interwał</th><th>Następny termin</th><th>Pojazd</th><th></th></tr></thead>
-          <tbody id="s_tbody"></tbody>
-        </table>
-      </div>
     </section>
   </main>
 
@@ -963,6 +956,7 @@ INDEX_HTML = """
     </div>
     <div>
       <h4 style="margin:0 0 8px">Koszty dziennie</h4>
+      <!-- BAR CHART zamiast liniowego -->
       <canvas id="chartCost"></canvas>
     </div>
     <div style="margin-top:20px;">
@@ -975,6 +969,26 @@ INDEX_HTML = """
     </div>
   </section>
 
+  <!-- MODAL: Auth -->
+  <div id="authModal" class="modal-backdrop" onclick="backdropClose(event)">
+    <div class="modal" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
+      <header>
+        <h3>Zaloguj się / Zarejestruj</h3>
+        <button onclick="closeAuthModal()">✕</button>
+      </header>
+      <div class="row">
+        <div><label>Email</label><input id="regEmail" placeholder="uzytkownik@domena.pl"></div>
+        <div><label>Imię</label><input id="regName" placeholder="Jan Kowalski"></div>
+      </div>
+      <label>Hasło</label><input id="regPass" type="password" placeholder="********">
+      <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+        <button type="button" class="primary" onclick="register()">Rejestracja</button>
+        <button type="button" onclick="login()">Logowanie</button>
+      </div>
+      <p class="muted" style="font-size:12px; margin-top:8px;">Zarejestruj konto albo zaloguj się aby zarządzać pojazdami.</p>
+    </div>
+  </div>
+
   <div class="toast" id="toast">✓ Zapisano</div>
 
   <script>
@@ -982,26 +996,56 @@ INDEX_HTML = """
     window.loggedIn = false;
     window._entriesCache = [];
 
-    // ====== Marka/Model (Europa — skrócona baza popularnych) ======
+    // ====== Modal Auth ======
+    function openAuthModal(){ $('authModal').style.display = 'flex'; }
+    function closeAuthModal(){ $('authModal').style.display = 'none'; }
+    function backdropClose(e){ if(e.target.id==='authModal') closeAuthModal(); }
+
+    // ====== Marka/Model (więcej marek + sportowe) ======
     const CAR_DATA = {
-      "Audi": ["A1","A3","A4","A5","A6","A7","A8","Q2","Q3","Q5","Q7","Q8","TT","e-tron"],
-      "BMW": ["1 Series","2 Series","3 Series","4 Series","5 Series","7 Series","X1","X3","X5","X7","i3","i4","iX"],
-      "Mercedes-Benz": ["A-Class","B-Class","C-Class","E-Class","S-Class","GLA","GLB","GLC","GLE","GLS","CLA","CLS","EQC","EQA"],
-      "Volkswagen": ["up!","Polo","Golf","Passat","Tiguan","T-Roc","Touareg","Arteon","ID.3","ID.4","ID.5"],
-      "Škoda": ["Fabia","Scala","Octavia","Superb","Kamiq","Karoq","Kodiaq","Enyaq"],
-      "SEAT": ["Ibiza","Arona","Leon","Ateca","Tarraco"],
-      "Renault": ["Clio","Captur","Megane","Austral","Arkana","Kadjar","Koleos","Twingo","Scenic"],
+      "Audi": ["A1","A3","S3","RS3","A4","S4","RS4","A5","S5","RS5","A6","S6","RS6","A7","S7","RS7","A8","Q2","Q3","RSQ3","Q5","SQ5","Q7","SQ7","Q8","SQ8","RSQ8","TT","TTS","TTRS","e-tron","e-tron GT","RS e-tron GT"],
+      "BMW": ["1 Series","M135i","2 Series","M240i","3 Series","M3","4 Series","M4","5 Series","M5","7 Series","X1","X3","X3 M","X5","X5 M","X6","X6 M","X7","i3","i4","i5","i7","iX"],
+      "Mercedes-Benz": ["A-Class","AMG A35","AMG A45","C-Class","AMG C43","AMG C63","E-Class","AMG E53","AMG E63","S-Class","GLA","GLB","GLC","AMG GLC 43","GLE","GLS","CLA","AMG CLA 45","CLS","EQA","EQB","EQE","EQS"],
+      "Volkswagen": ["up!","Polo","Polo GTI","Golf","Golf GTI","Golf R","Passat","Arteon","Tiguan","T-Roc","T-Roc R","Touareg","ID.3","ID.4","ID.5"],
+      "Škoda": ["Fabia","Scala","Octavia","Octavia RS","Superb","Kamiq","Karoq","Kodiaq","Enyaq"],
+      "SEAT": ["Ibiza","Arona","Leon","Leon Cupra","Ateca","Tarraco"],
+      "Cupra": ["Born","Formentor","Ateca","Leon"],
+      "Renault": ["Clio","Clio RS","Captur","Megane","Megane RS","Austral","Arkana","Kadjar","Koleos","Twingo","Scenic"],
       "Dacia": ["Sandero","Logan","Duster","Jogger","Spring"],
-      "Peugeot": ["208","308","508","2008","3008","5008","e-208","e-2008"],
-      "Citroën": ["C3","C3 Aircross","C4","C5 Aircross","Berlingo","ë-C4"],
-      "Opel": ["Corsa","Astra","Insignia","Mokka","Crossland","Grandland"],
-      "Ford": ["Fiesta","Puma","Focus","Mondeo","Kuga","S-Max","Galaxy","Mustang","Mach-E"],
-      "Fiat": ["500","500X","Panda","Tipo","Doblo"],
-      "Alfa Romeo": ["Giulia","Stelvio","Tonale"],
-      "Toyota": ["Aygo","Yaris","Corolla","Camry","C-HR","RAV4","Avensis","Highlander","Proace"],
-      "Kia": ["Picanto","Rio","Ceed","Stonic","Sportage","Sorento","Niro","EV6"],
-      "Hyundai": ["i10","i20","i30","Tucson","Kona","Santa Fe","Ioniq 5"],
-      "Volvo": ["S60","V60","S90","V90","XC40","XC60","XC90","EX30"]
+      "Peugeot": ["208","e-208","208 GTi","308","308 GT","508","508 PSE","2008","e-2008","3008","5008"],
+      "Citroën": ["C3","C3 Aircross","C4","C4 X","C5 X","C5 Aircross","Berlingo","ë-C4"],
+      "DS": ["DS 3","DS 4","DS 7","DS 9"],
+      "Opel": ["Corsa","Corsa-e","Astra","Insignia","Mokka","Crossland","Grandland"],
+      "Vauxhall": ["Corsa","Astra","Insignia","Mokka","Crossland","Grandland"],
+      "Ford": ["Fiesta","Fiesta ST","Puma","Puma ST","Focus","Focus ST","Focus RS","Mondeo","Kuga","S-Max","Galaxy","Mustang","Mustang Mach-E"],
+      "Fiat": ["500","500 Abarth","500X","Panda","Tipo","Doblo"],
+      "Abarth": ["595","695"],
+      "Alfa Romeo": ["Giulia","Giulia Quadrifoglio","Stelvio","Stelvio Quadrifoglio","Tonale"],
+      "Lancia": ["Ypsilon"],
+      "Toyota": ["Aygo","Aygo X","Yaris","GR Yaris","Corolla","GR Corolla","Camry","C-HR","RAV4","GR86","Supra","Avensis","Highlander","Proace"],
+      "Lexus": ["CT","IS","IS F","ES","GS","RC","RC F","NX","RX","UX","LC","LC 500"],
+      "Nissan": ["Micra","Leaf","Juke","Juke Nismo","Qashqai","X-Trail","370Z","GT-R"],
+      "Mazda": ["2","3","6","CX-3","CX-30","CX-5","MX-5"],
+      "Honda": ["Jazz","Civic","Civic Type R","Accord","HR-V","CR-V","e"],
+      "Subaru": ["Impreza","WRX STI","XV","Forester","Outback","BRZ"],
+      "Suzuki": ["Swift","Swift Sport","Ignis","Baleno","Vitara","S-Cross","Jimny"],
+      "Hyundai": ["i10","i20","i20 N","i30","i30 N","Elantra N","Tucson","Kona","Kona N","Santa Fe","Ioniq 5","Ioniq 6"],
+      "Kia": ["Picanto","Picanto GT-Line","Rio","Ceed","Proceed","Stonic","Sportage","Sorento","Niro","EV6","EV6 GT"],
+      "Volvo": ["S60","S60 Polestar","V60","V60 Polestar","S90","V90","XC40","XC60","XC90","EX30","EX90"],
+      "Jaguar": ["XE","XF","XJ","E-Pace","F-Pace","I-Pace","F-Type"],
+      "Land Rover": ["Defender","Discovery Sport","Discovery","Range Rover Evoque","Range Rover Velar","Range Rover Sport","Range Rover"],
+      "MINI": ["3 Door","5 Door","Clubman","Countryman","Convertible","Cooper S","JCW","Electric"],
+      "Porsche": ["718 Cayman","718 Boxster","718 GT4","911 Carrera","911 Turbo","911 GT3","Taycan","Panamera","Macan","Cayenne"],
+      "Tesla": ["Model 3","Model Y","Model S","Model X"],
+      "Smart": ["fortwo","forfour","#1"],
+      "Mitsubishi": ["Space Star","ASX","Eclipse Cross","Outlander","L200"],
+      "Jeep": ["Renegade","Compass","Cherokee","Grand Cherokee","Wrangler"],
+      "Aston Martin": ["Vantage","DB11","DB12","DBS","Vanquish"],
+      "Maserati": ["Ghibli","Quattroporte","Levante","MC20","GranTurismo"],
+      "Alpine": ["A110"],
+      "Ferrari": ["Roma","Portofino","296 GTB","F8 Tributo","SF90 Stradale","812 Superfast"],
+      "Lamborghini": ["Huracán","Aventador","Revuelto","Urus"],
+      "McLaren": ["540C","570S","600LT","650S","720S","765LT","Artura","GT"]
     };
     const OTHER_MAKE = "Inna marka…";
     const OTHER_MODEL = "Inny model…";
@@ -1041,12 +1085,26 @@ INDEX_HTML = """
       model = (modelSel.value === OTHER_MODEL) ? (modelCustom.value||'').trim() : (modelSel.value||'');
       return { make, model };
     }
-    document.addEventListener('DOMContentLoaded', populateMakes);
+
+    // Lata (od bieżącego do 1980)
+    function populateYears() {
+      const y = $('year'); if(!y) return;
+      const now = new Date().getFullYear();
+      y.innerHTML = '<option value=\"\">— wybierz rok —</option>';
+      for(let yy=now; yy>=1980; yy--) {
+        const o = document.createElement('option'); o.value=yy; o.textContent=yy; y.appendChild(o);
+      }
+    }
+
+    // Nr rej.: tylko wielkie litery i cyfry
+    function enforcePlate(el){
+      el.value = (el.value || '').toUpperCase().replace(/[^A-Z0-9]/g,'');
+    }
 
     // ====== TOAST ======
     function toast(msg){ const t = $('toast'); t.textContent = msg || '✓ Zapisano'; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 1600); }
 
-    // ====== KONTO ======
+    // ====== KONTO (modal) ======
     async function register(){
       const email = $('regEmail').value || '', name = $('regName').value || '', pass = $('regPass').value || '';
       if(!email || !name || !pass) return alert('Uzupełnij e-mail, imię i hasło.');
@@ -1056,11 +1114,13 @@ INDEX_HTML = """
     async function login(){
       try {
         const res = await api('/api/login', { method:'POST', body: JSON.stringify({ email: $('regEmail').value, password: $('regPass').value }), headers:{'Content-Type':'application/json'} });
-        $('userName').textContent = res.user.name; window.loggedIn = true; $('authBox').style.display = 'none';
+        $('userName').textContent = res.user.name; window.loggedIn = true;
+        $('authBtn').style.display='none'; $('logoutBtn').style.display='inline-block'; closeAuthModal();
         await loadVehicles(); await loadReminderVehicles(); await refreshEntries(); await loadStats(); await loadReminders(); await loadSchedules();
+        populateYears();
       } catch(e) { alert('Błędne dane logowania.'); }
     }
-    async function logout(){ try{ await api('/api/logout', {method:'POST'}) }catch(e){} window.loggedIn = false; location.reload(); }
+    async function logout(){ try{ await api('/api/logout',{method:'POST'}) }catch(e){} window.loggedIn=false; location.reload(); }
 
     // ====== POJAZDY ======
     async function loadVehicles(){
@@ -1155,7 +1215,7 @@ INDEX_HTML = """
       ev.target.value = '';
     }
 
-    // ====== STATYSTYKI / TCO ======
+    // ====== STATYSTYKI: BAR chart ======
     async function loadStats(){
       try{
         const s = await api('/api/stats');
@@ -1171,10 +1231,10 @@ INDEX_HTML = """
         if(ctx){
           if(window._chartCost) window._chartCost.destroy();
           window._chartCost = new Chart(ctx, {
-            type:'line',
-            data:{ labels, datasets:[{ label:'Koszt (PLN) / dzień', data:costs, tension:.25, fill:false }]},
+            type:'bar',
+            data:{ labels, datasets:[{ label:'Koszt (PLN) / dzień', data:costs }]},
             options:{ responsive:true, interaction:{ mode:'index', intersect:false },
-              scales:{ x:{ grid:{color:'#222'}, ticks:{color:'#f3f4f6'} }, y:{ grid:{color:'#222'}, ticks:{color:'#f3f4f6'} } },
+              scales:{ x:{ grid:{color:'#222'}, ticks:{color:'#f3f4f6', maxRotation:0, autoSkip:true} }, y:{ grid:{color:'#222'}, ticks:{color:'#f3f4f6'} } },
               plugins:{ legend:{ labels:{ color:'#f3f4f6' } } }
             }
           });
@@ -1210,7 +1270,9 @@ INDEX_HTML = """
       }catch(e){}
     }
     async function loadReminderVehicles(){
-      try{ const list = await api('/api/vehicles'); const rsel = $('r_vehicle'); if(!rsel) return; rsel.innerHTML = '<option value=\"\">—</option>';
+      try{
+        const list = await api('/api/vehicles'); const rsel = $('r_vehicle'); if(!rsel) return;
+        rsel.innerHTML = '<option value=\"\">—</option>';
         list.forEach(v => { const o = document.createElement('option'); o.value = v.id; o.textContent = (v.make+' '+v.model+' '+(v.year||'')+' '+(v.reg_plate||'')).trim(); rsel.appendChild(o); });
       }catch(e){}
     }
@@ -1234,7 +1296,7 @@ INDEX_HTML = """
     async function completeReminder(id){ await api('/api/reminders/' + id, { method:'PUT', body: JSON.stringify({ completed_at: new Date().toISOString() }), headers:{'Content-Type':'application/json'} }); await loadReminders(); }
     async function deleteReminder(id){ await api('/api/reminders/' + id, { method:'DELETE' }); await loadReminders(); }
 
-    // ====== HARMONOGRAMY (pomysł #1) ======
+    // ====== HARMONOGRAMY ======
     async function loadSchedules(){
       const tb = $('s_tbody'); if(!tb) return; tb.innerHTML='';
       const list = await api('/api/schedules');
@@ -1262,8 +1324,11 @@ INDEX_HTML = """
     }
     async function deleteSchedule(id){ await api('/api/schedules/' + id, { method:'DELETE' }); await loadSchedules(); }
 
-    // Eksport globalnie
+    // Init selects (marki, lata)
+    document.addEventListener('DOMContentLoaded', () => { populateMakes(); populateYears(); });
+    // Eksport do window (onclick w HTML)
     Object.assign(window, {
+      openAuthModal, closeAuthModal, backdropClose,
       register, login, logout,
       loadVehicles, addVehicle, deleteSelectedVehicle,
       addEntry, refreshEntries, delEntry, editEntry,
@@ -1271,12 +1336,13 @@ INDEX_HTML = """
       addReminder, completeReminder, deleteReminder,
       importCsvFile,
       loadSchedules, addSchedule, deleteSchedule,
-      onMakeChange
+      onMakeChange, enforcePlate
     });
   </script>
 </body>
 </html>
 """
+
 
 @app.get("/")
 def index_page():
