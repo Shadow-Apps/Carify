@@ -42,7 +42,7 @@ def _normalize_db_url(url: str) -> str:
         url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
     return url
 
-DB_URL = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or "/var/lib/postgresql/data"
+DB_URL = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or "postgresql://postgres:hKdkJQhSIVyPLcRpoDqkmxBBGTLgdPbH@tramway.proxy.rlwy.net:29359/railway"
 if not DB_URL:
     raise RuntimeError("Brak zmiennej środowiskowej DATABASE_URL (Railway Postgres).")
 ENGINE = create_engine(_normalize_db_url(DB_URL), pool_pre_ping=True)
