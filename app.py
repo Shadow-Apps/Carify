@@ -42,7 +42,7 @@ def _normalize_db_url(url: str) -> str:
         url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
     return url
 
-DB_URL = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or ""
+DB_URL = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or "/var/lib/postgresql/data"
 if not DB_URL:
     raise RuntimeError("Brak zmiennej środowiskowej DATABASE_URL (Railway Postgres).")
 ENGINE = create_engine(_normalize_db_url(DB_URL), pool_pre_ping=True)
@@ -92,7 +92,7 @@ ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "pdf", "webp"}
 
 app = Flask(__name__)
 app.config.update(
-    SECRET_KEY=os.environ.get("EDZIENNIK_SECRET", "dev-secret-change-me"),
+    SECRET_KEY=os.environ.get("EDZIENNIK_SECRET", "123Jebacpsy2002"),
     MAX_CONTENT_LENGTH=20 * 1024 * 1024,
     DEBUG=True,
     ENV="development",
@@ -124,9 +124,9 @@ def _handle_error(e):
 SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER", "carifynotification@gmail.com")
-SMTP_PASS = os.environ.get("SMTP_PASS", "")   # App Password (16 znaków)
+SMTP_PASS = os.environ.get("SMTP_PASS", "jbqc dpmi wjkk huct")   # App Password (16 znaków)
 EMAIL_FROM = os.environ.get("EMAIL_FROM", "carifynotification@gmail.com")
-DEFAULT_NOTIFY_BEFORE_DAYS = int(os.environ.get("NOTIFY_BEFORE_DAYS", "7"))
+DEFAULT_NOTIFY_BEFORE_DAYS = int(os.environ.get("NOTIFY_BEFORE_DAYS", "1"))
 
 def send_email(to_email: str, subject: str, html: str, plain: str = None):
     if not (SMTP_HOST and SMTP_USER and EMAIL_FROM and SMTP_PASS):
