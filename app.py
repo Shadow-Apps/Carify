@@ -950,18 +950,22 @@ document.addEventListener('DOMContentLoaded', populateMakes);
     };
 
     window.addVehicle = async function(){
-      try{
-        const body = {
-          make: $('make').value,
-          model: $('model').value,
-          year: parseInt($('year').value||0)||null,
-          vin: $('vin').value,
-          reg_plate: $('reg_plate').value,
-        };
-        await api('/api/vehicles', { method:'POST', body: JSON.stringify(body), headers:{'Content-Type':'application/json'} });
-        toast('Dodano pojazd'); await loadVehicles(); await loadStats(); await loadReminders();
-      }catch(e){ alert('Błąd dodawania pojazdu'); }
+  try{
+    const { make, model } = getSelectedMakeModel();
+    if (!make || !model) return alert('Wybierz markę i model (lub wpisz własne).');
+
+    const body = {
+      make,
+      model,
+      year: parseInt(document.getElementById('year').value || 0) || null,
+      vin: document.getElementById('vin').value,
+      reg_plate: document.getElementById('reg_plate').value,
     };
+    await api('/api/vehicles', { method:'POST', body: JSON.stringify(body), headers:{'Content-Type':'application/json'} });
+    toast('Dodano pojazd');
+    await loadVehicles(); await loadStats(); await loadReminders();
+  }catch(e){ alert('Błąd dodawania pojazdu'); }
+};
 
     window.deleteSelectedVehicle = async function(){
       const sel = $('vehicleSelect');
