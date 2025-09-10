@@ -549,66 +549,69 @@ INDEX_HTML = """
   <meta charset=utf-8>
   <meta name=viewport content="width=device-width,initial-scale=1">
   <title>{APP_TITLE}</title>
-  <script>
-  // Helper: fetch JSON
-  async function api(path, opts = {}) {
-    try {
-      const res = await fetch(path, Object.assign({ headers: {} }, opts));
-      const ct = res.headers.get('content-type') || '';
-      let data = null;
-      if (ct.includes('application/json')) data = await res.json().catch(() => null);
-      else data = await res.text().catch(() => null);
-      if (!res.ok) {
-        console.error('[API ERR]', path, res.status, data);
-        const msg = (data && (data.error || data.detail || data.message)) || String(data) || 'Błąd';
-        throw new Error('[' + res.status + '] ' + msg);
-      }
-      return data;
-    } catch (e) {
-      console.error('[API EXC]', path, e);
-      throw e;
-    }
-  }
-  window.addEventListener('error', ev => { console.error('[window.error]', ev.message); alert('Błąd JS: ' + ev.message); });
-  window.addEventListener('unhandledrejection', ev => { console.error('[unhandledrejection]', ev.reason); alert('Błąd: ' + (ev.reason?.message || ev.reason || 'Nieznany')); });
-</script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <style>
-  :root { --bg:#0a0a0a; --bg2:#1a0000; --card:#141414; --text:#f3f4f6; --muted:#9ca3af; --border:#262626; --accent:#ff3232; --accent-600:#cc2727; --r:14px; --pad:14px; --gap:18px; --sh:0 10px 28px rgba(0,0,0,.7) }
-  * { box-sizing:border-box }
-  body { margin:0; background:linear-gradient(180deg,var(--bg),var(--bg2)); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial }
-  header { position:sticky; top:0; z-index:10; background:#0f0f0f; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:var(--gap); padding:var(--pad) calc(var(--pad)*1.5) }
-  .brand { display:flex; align-items:center; gap:10px; font-weight:800 }
-  .brand svg { width:28px; height:28px }
-  main { padding:calc(var(--pad)*1.5); display:grid; grid-template-columns:minmax(320px,380px) 1fr; gap:var(--gap); align-items:start }
-  .card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:var(--pad); box-shadow:var(--sh) }
-  h3 { margin:0 0 10px }
-  label { display:block; font-size:12px; color:var(--muted); margin:8px 0 6px }
-  input,select,textarea { width:100%; display:block; padding:12px; border-radius:10px; border:1px solid var(--border); background:#0f0f0f; color:var(--text); outline:none }
-  input:focus,select:focus,textarea:focus { border-color:var(--accent); box-shadow:0 0 0 2px rgba(255,50,50,.45) }
-  button { padding:10px 14px; border:1px solid var(--border); background:#0f0f0f; color:var(--text); border-radius:10px; cursor:pointer }
-  button.primary { background:var(--accent); border-color:var(--accent); color:#fff }
-  button.primary:hover { background:var(--accent-600) }
-  a { color:#ff7b7b; text-decoration:none }
-  a:hover { text-decoration:underline }
-  .row { display:grid; grid-template-columns:1fr 1fr; gap:var(--gap) }
-  @media (max-width:1100px) {
-    main { grid-template-columns:1fr }
-    .row { grid-template-columns:1fr }
-  }
-  table { width:100%; border-collapse:collapse; background:#0f0f0f; border:1px solid var(--border); border-radius:var(--r); overflow:hidden }
-  thead th { background:#1f1f1f; color:#ff9c9c }
-  th, td { padding:12px; border-bottom:1px solid var(--border); text-align:left; font-size:14px }
-  .actions { display:flex; gap:8px }
-  .muted { color:var(--muted) }
-  .toast { position:fixed; right:16px; bottom:16px; background:var(--accent); color:#fff; padding:10px 14px; border-radius:10px; display:none; box-shadow:var(--sh) }
-  canvas { background:radial-gradient(ellipse at top,#151515,#0d0d0d); border:1px solid var(--border); border-radius:12px; padding:8px }
-</style>
 
+  <script>
+    // Helper: fetch JSON z ładnym błędem
+    async function api(path, opts = {}) {
+      try {
+        const res = await fetch(path, Object.assign({ headers: {} }, opts));
+        const ct = res.headers.get('content-type') || '';
+        let data = null;
+        if (ct.includes('application/json')) data = await res.json().catch(() => null);
+        else data = await res.text().catch(() => null);
+        if (!res.ok) {
+          console.error('[API ERR]', path, res.status, data);
+          const msg = (data && (data.error || data.detail || data.message)) || String(data) || 'Błąd';
+          throw new Error('[' + res.status + '] ' + msg);
+        }
+        return data;
+      } catch (e) {
+        console.error('[API EXC]', path, e);
+        throw e;
+      }
+    }
+    // globalne łapanie błędów JS
+    window.addEventListener('error', ev => { console.error('[window.error]', ev.message); alert('Błąd JS: ' + ev.message); });
+    window.addEventListener('unhandledrejection', ev => { console.error('[unhandledrejection]', ev.reason); alert('Błąd: ' + (ev.reason?.message || ev.reason || 'Nieznany')); });
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    :root { --bg:#0a0a0a; --bg2:#1a0000; --card:#141414; --text:#f3f4f6; --muted:#9ca3af; --border:#262626; --accent:#ff3232; --accent-600:#cc2727; --r:14px; --pad:14px; --gap:18px; --sh:0 10px 28px rgba(0,0,0,.7) }
+    * { box-sizing:border-box }
+    body { margin:0; background:linear-gradient(180deg,var(--bg),var(--bg2)); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial }
+    header { position:sticky; top:0; z-index:10; background:#0f0f0f; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:var(--gap); padding:var(--pad) calc(var(--pad)*1.5) }
+    .brand { display:flex; align-items:center; gap:10px; font-weight:800 }
+    .brand svg { width:28px; height:28px }
+    main { padding:calc(var(--pad)*1.5); display:grid; grid-template-columns:minmax(320px,380px) 1fr; gap:var(--gap); align-items:start }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:var(--pad); box-shadow:var(--sh) }
+    h3 { margin:0 0 10px }
+    label { display:block; font-size:12px; color:var(--muted); margin:8px 0 6px }
+    input, select, textarea { width:100%; display:block; padding:12px; border-radius:10px; border:1px solid var(--border); background:#0f0f0f; color:var(--text); outline:none }
+    input:focus, select:focus, textarea:focus { border-color:var(--accent); box-shadow:0 0 0 2px rgba(255,50,50,.45) }
+    button { padding:10px 14px; border:1px solid var(--border); background:#0f0f0f; color:var(--text); border-radius:10px; cursor:pointer }
+    button.primary { background:var(--accent); border-color:var(--accent); color:#fff }
+    button.primary:hover { background:var(--accent-600) }
+    a { color:#ff7b7b; text-decoration:none }
+    a:hover { text-decoration:underline }
+    .row { display:grid; grid-template-columns:1fr 1fr; gap:var(--gap) }
+    @media (max-width:1100px) {
+      main { grid-template-columns:1fr }
+      .row { grid-template-columns:1fr }
+    }
+    table { width:100%; border-collapse:collapse; background:#0f0f0f; border:1px solid var(--border); border-radius:var(--r); overflow:hidden }
+    thead th { background:#1f1f1f; color:#ff9c9c }
+    th, td { padding:12px; border-bottom:1px solid var(--border); text-align:left; font-size:14px }
+    .actions { display:flex; gap:8px }
+    .muted { color:var(--muted) }
+    .toast { position:fixed; right:16px; bottom:16px; background:var(--accent); color:#fff; padding:10px 14px; border-radius:10px; display:none; box-shadow:var(--sh) }
+    canvas { background:radial-gradient(ellipse at top,#151515,#0d0d0d); border:1px solid var(--border); border-radius:12px; padding:8px }
+  </style>
 </head>
 <body>
   <header>
     <div class="brand">
+      <!-- proste logo "koło + klucz" w gradiencie -->
       <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ff3232"/><stop offset="100%" stop-color="#cc2727"/></linearGradient></defs>
         <circle cx="20" cy="20" r="10" stroke="url(#g)" stroke-width="4"/>
@@ -617,7 +620,7 @@ INDEX_HTML = """
       </svg>
       <span>{APP_TITLE}</span>
     </div>
-    <div style="margin-left:auto;display:flex;gap:10px;align-items:center;">
+    <div style="margin-left:auto; display:flex; gap:10px; align-items:center;">
       <span id="userName" class="muted"></span>
       <button type="button" onclick="logout()">Wyloguj</button>
     </div>
@@ -632,14 +635,14 @@ INDEX_HTML = """
           <div><label>Imię</label><input id="regName" placeholder="Jan Kowalski"></div>
         </div>
         <label>Hasło</label><input id="regPass" type="password" placeholder="********">
-        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+        <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
           <button type="button" class="primary" onclick="register()">Rejestracja</button>
           <button type="button" onclick="login()">Logowanie</button>
         </div>
-        <p class="muted" style="font-size:12px;margin-top:8px;">Utwórz konto lub zaloguj się, aby zarządzać pojazdami i wpisami.</p>
+        <p class="muted" style="font-size:12px; margin-top:8px;">Utwórz konto lub zaloguj się, aby zarządzać pojazdami i wpisami.</p>
       </div>
 
-      <hr style="border-color:#262626;margin:14px 0;">
+      <hr style="border-color:#262626; margin:14px 0;">
 
       <h3>Pojazdy</h3>
       <div>
@@ -656,9 +659,9 @@ INDEX_HTML = """
         <label>Wybierz pojazd</label>
         <select id="vehicleSelect" onchange="refreshEntries()"></select>
       </div>
-      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+      <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
         <button type="button" onclick="deleteSelectedVehicle()">Usuń wybrany pojazd</button>
-        <a href="/api/export/csv" onclick="if(!window.loggedIn){alert('Najpierw zaloguj się.');return false;}">Eksport CSV</a>
+        <a href="/api/export/csv" onclick="if(!window.loggedIn){ alert('Najpierw zaloguj się.'); return false; }">Eksport CSV</a>
       </div>
     </section>
 
@@ -676,19 +679,19 @@ INDEX_HTML = """
       </div>
       <div style="margin-top:10px;"><button type="button" class="primary" onclick="addEntry()">Dodaj wpis</button></div>
 
-      <div style="margin-top:16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <div style="margin-top:16px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <input id="search" placeholder="Szukaj w typie/opisie" oninput="refreshEntries()" style="max-width:360px;">
         <span class="muted" style="font-size:12px;">Kliknij link w kolumnie „Plik”, aby podejrzeć załącznik.</span>
       </div>
 
-      <div style="overflow:auto;margin-top:10px;">
+      <div style="overflow:auto; margin-top:10px;">
         <table>
           <thead><tr><th>Data</th><th>Przebieg</th><th>Typ</th><th>Opis</th><th>Koszt</th><th>Plik</th><th></th></tr></thead>
           <tbody id="entriesTbody"></tbody>
         </table>
       </div>
 
-      <hr style="border-color:#262626;margin:16px 0;">
+      <hr style="border-color:#262626; margin:16px 0;">
 
       <h3>Przypomnienia</h3>
       <div class="row">
@@ -701,7 +704,7 @@ INDEX_HTML = """
             <option value="Wymiana oleju">Wymiana oleju</option>
             <option value="Inne">Inne</option>
           </select>
-          <div id="r_type_custom_wrap" style="display:none;margin-top:8px;">
+          <div id="r_type_custom_wrap" style="display:none; margin-top:8px;">
             <label>Własny powód</label><input id="r_type_custom" placeholder="np. wymiana opon">
           </div>
         </div>
@@ -717,17 +720,17 @@ INDEX_HTML = """
       </div>
       <div style="margin-top:8px;"><button type="button" class="primary" onclick="addReminder()">Dodaj przypomnienie</button></div>
 
-      <div style="margin-top:12px;overflow:auto;">
+      <div style="margin-top:12px; overflow:auto;">
         <table>
           <thead><tr><th></th><th>Rodzaj</th><th>Data</th><th>Przebieg</th><th>Mail</th><th>Dni wcześniej</th><th>Pojazd</th><th></th></tr></thead>
-          <tbody id="r_tbody"></tbody>
+        <tbody id="r_tbody"></tbody>
         </table>
       </div>
     </section>
   </main>
 
   <section class="card" style="margin:0 calc(var(--pad)*1.5) calc(var(--pad)*1.5);">
-    <h3>Wykres Kosztów</h3>
+    <h3>📊 Dashboard</h3>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 14px;">
       <label style="margin:0;align-self:center;">Zakres dni:</label>
       <select id="dash_range" onchange="loadStats()" style="max-width:220px;">
@@ -753,143 +756,221 @@ INDEX_HTML = """
   <div class="toast" id="toast">✓ Zapisano</div>
 
   <script>
-    let currentVehicleId=null, editEntryId=null; window.loggedIn=false;
-    function toast(msg){const t=document.getElementById('toast');t.textContent=msg||'✓ Zapisano';t.style.display='block';setTimeout(()=>t.style.display='none',1600);}
+    // Stan i utils
+    let currentVehicleId = null, editEntryId = null; window.loggedIn = false;
+    function toast(msg){ const t = document.getElementById('toast'); t.textContent = msg || '✓ Zapisano'; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 1600); }
 
-    async function register(){ try{
-      const email=regEmail.value||'', name=regName.value||'', pass=regPass.value||'';
-      if(!email||!name||!pass) return alert('Uzupełnij e-mail, imię i hasło.');
-      await api('/api/register',{method:'POST',body:JSON.stringify({email:email,name:name,password:pass}),headers:{'Content-Type':'application/json'}});
-      toast('Konto utworzone. Zaloguj się.');
-    }catch(e){ alert('Rejestracja nieudana: '+(e.message||'')); } }
-
-    async function login(){ try{
-      const res=await api('/api/login',{method:'POST',body:JSON.stringify({email:regEmail.value,password:regPass.value}),headers:{'Content-Type':'application/json'}});
-      userName.textContent=res.user.name; window.loggedIn=true; authBox.style.display='none';
-      await loadVehicles(); await loadReminderVehicles(); await refreshEntries(); await loadStats(); await loadReminders();
-    }catch(e){ alert('Błędne dane logowania.'); } }
-
-    async function logout(){ try{await api('/api/logout',{method:'POST'});}catch(e){} window.loggedIn=false; location.reload(); }
-
-    async function loadVehicles(){ const list=await api('/api/vehicles'); const sel=vehicleSelect, rsel=document.getElementById('r_vehicle');
-      sel.innerHTML=''; if(rsel) rsel.innerHTML='<option value=\"\">—</option>';
-      list.forEach(v=>{ const label=(v.make+' '+v.model+' '+(v.year||'')+' '+(v.reg_plate||'')).trim();
-        const o=document.createElement('option'); o.value=v.id; o.textContent=label; sel.appendChild(o);
-        if(rsel){ const o2=document.createElement('option'); o2.value=v.id; o2.textContent=label; rsel.appendChild(o2); }
-      });
-      if(list.length){ currentVehicleId=list[0].id; sel.value=currentVehicleId; }
+    // Konto
+    async function register(){
+      try{
+        const email = regEmail.value || '', name = regName.value || '', pass = regPass.value || '';
+        if(!email || !name || !pass) return alert('Uzupełnij e-mail, imię i hasło.');
+        await api('/api/register', { method:'POST', body: JSON.stringify({ email, name, password: pass }), headers:{'Content-Type':'application/json'} });
+        toast('Konto utworzone. Zaloguj się.');
+      }catch(e){ alert('Rejestracja nieudana: ' + (e.message||'')); }
     }
+    async function login(){
+      try{
+        const res = await api('/api/login', { method:'POST', body: JSON.stringify({ email: regEmail.value, password: regPass.value }), headers:{'Content-Type':'application/json'} });
+        userName.textContent = res.user.name;
+        window.loggedIn = true;
+        authBox.style.display = 'none';
+        await loadVehicles(); await loadReminderVehicles(); await refreshEntries(); await loadStats(); await loadReminders();
+      }catch(e){ alert('Błędne dane logowania.'); }
+    }
+    async function logout(){ try{ await api('/api/logout', {method:'POST'}) }catch(e){} window.loggedIn = false; location.reload(); }
 
-    async function addVehicle(){ try{
-      const body={make:make.value,model:model.value,year:parseInt(year.value||0)||null,vin:vin.value,reg_plate:reg_plate.value};
-      await api('/api/vehicles',{method:'POST',body:JSON.stringify(body),headers:{'Content-Type':'application/json'}});
-      toast('Dodano pojazd'); await loadVehicles(); await loadStats(); await loadReminders();
-    }catch(e){ alert('Błąd dodawania pojazdu'); } }
-
-    async function deleteSelectedVehicle(){ if(!vehicleSelect.value) return alert('Wybierz pojazd');
+    // Pojazdy
+    async function loadVehicles(){
+      const list = await api('/api/vehicles');
+      const sel = vehicleSelect, rsel = document.getElementById('r_vehicle');
+      sel.innerHTML = ''; if(rsel) rsel.innerHTML = '<option value="">—</option>';
+      list.forEach(v => {
+        const label = (v.make + ' ' + v.model + ' ' + (v.year||'') + ' ' + (v.reg_plate||'')).trim();
+        const o = document.createElement('option'); o.value = v.id; o.textContent = label; sel.appendChild(o);
+        if(rsel){ const o2 = document.createElement('option'); o2.value = v.id; o2.textContent = label; rsel.appendChild(o2); }
+      });
+      if(list.length){ currentVehicleId = list[0].id; sel.value = currentVehicleId; }
+    }
+    async function addVehicle(){
+      try{
+        const body = { make: make.value, model: model.value, year: parseInt(year.value||0)||null, vin: vin.value, reg_plate: reg_plate.value };
+        await api('/api/vehicles', { method:'POST', body: JSON.stringify(body), headers:{'Content-Type':'application/json'} });
+        toast('Dodano pojazd'); await loadVehicles(); await loadStats(); await loadReminders();
+      }catch(e){ alert('Błąd dodawania pojazdu'); }
+    }
+    async function deleteSelectedVehicle(){
+      if(!vehicleSelect.value) return alert('Wybierz pojazd');
       if(!confirm('Usunąć wybrany pojazd wraz z wpisami?')) return;
-      await api('/api/vehicles/'+vehicleSelect.value,{method:'DELETE'}); toast('Usunięto pojazd');
+      await api('/api/vehicles/' + vehicleSelect.value, {method:'DELETE'});
+      toast('Usunięto pojazd');
       await loadVehicles(); await loadStats(); await loadReminders(); await refreshEntries();
     }
 
-    async function addEntry(){ if(!vehicleSelect.value) return alert('Najpierw dodaj pojazd.');
-      const fd=new FormData(); fd.append('vehicle_id',vehicleSelect.value); fd.append('date',date.value); fd.append('mileage',mileage.value);
-      fd.append('service_type',service_type.value); fd.append('description',description.value); fd.append('cost',cost.value);
-      const f=file.files[0]; if(f) fd.append('file',f);
-      try{ if(editEntryId){
-          const body={date:date.value,mileage:mileage.value,service_type:service_type.value,description:description.value,cost:cost.value};
-          await api('/api/entries/'+editEntryId,{method:'PUT',body:JSON.stringify(body),headers:{'Content-Type':'application/json'}});
-          editEntryId=null; document.querySelector('button.primary').textContent='Dodaj wpis';
+    // Wpisy
+    async function addEntry(){
+      if(!vehicleSelect.value) return alert('Najpierw dodaj pojazd.');
+      const fd = new FormData();
+      fd.append('vehicle_id', vehicleSelect.value);
+      fd.append('date', date.value);
+      fd.append('mileage', mileage.value);
+      fd.append('service_type', service_type.value);
+      fd.append('description', description.value);
+      fd.append('cost', cost.value);
+      const f = file.files[0]; if (f) fd.append('file', f);
+
+      try{
+        if(editEntryId){
+          const body = { date: date.value, mileage: mileage.value, service_type: service_type.value, description: description.value, cost: cost.value };
+          await api('/api/entries/' + editEntryId, { method:'PUT', body: JSON.stringify(body), headers:{'Content-Type':'application/json'} });
+          editEntryId = null; document.querySelector('button.primary').textContent = 'Dodaj wpis';
         } else {
-          await api('/api/entries',{method:'POST',body:fd}); file.value='';
+          await api('/api/entries', { method:'POST', body: fd });
+          file.value = '';
         }
         toast('Zapisano'); await refreshEntries();
       }catch(e){ alert('Błąd zapisu wpisu'); }
     }
-
-    function editEntry(id,e){ editEntryId=id; date.value=e.date||''; mileage.value=e.mileage||''; service_type.value=e.service_type||''; description.value=e.description||''; cost.value=e.cost||'';
-      document.querySelector('button.primary').textContent='Zapisz zmiany'; window.scrollTo({top:0,behavior:'smooth'});
+    function editEntry(id, e){
+      editEntryId = id;
+      date.value = e.date || ''; mileage.value = e.mileage || ''; service_type.value = e.service_type || '';
+      description.value = e.description || ''; cost.value = e.cost || '';
+      document.querySelector('button.primary').textContent = 'Zapisz zmiany';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
-    async function delEntry(id){ if(!confirm('Usunąć wpis?')) return; await api('/api/entries/'+id,{method:'DELETE'}); toast('Usunięto'); refreshEntries(); }
-
+    async function delEntry(id){ if(!confirm('Usunąć wpis?')) return; await api('/api/entries/' + id, {method:'DELETE'}); toast('Usunięto'); refreshEntries(); }
     async function refreshEntries(){
       currentVehicleId = vehicleSelect.value || null;
       const q = search.value || '';
-      const params=new URLSearchParams(); if(currentVehicleId) params.set('vehicle_id',currentVehicleId); if(q) params.set('q',q);
-      let list=[]; try{ list=await api('/api/entries?'+params.toString()); }catch(e){ return; }
-      const tb=entriesTbody; tb.innerHTML='';
-      list.forEach(e=>{
-        const tr=document.createElement('tr');
-        tr.innerHTML = '<td>'+e.date+'</td>'
-                     + '<td>'+(e.mileage?.toLocaleString?.("pl-PL")||"")+'</td>'
-                     + '<td>'+e.service_type+'</td>'
-                     + '<td>'+(e.description||"")+'</td>'
-                     + '<td>'+Number(e.cost||0).toLocaleString("pl-PL",{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'
-                     + '<td>'+(e.attachment?('<a target=_blank href="/uploads/'+e.attachment+'">plik</a>'):"")+'</td>'
-                     + '<td class=actions>'
-                     +   '<button onclick=\'editEntry('+e.id+','+JSON.stringify(e).replace(/`/g,"\\`")+')\'>Edytuj</button> '
-                     +   '<button onclick="delEntry('+e.id+')">Usuń</button>'
-                     + '</td>';
+      const params = new URLSearchParams();
+      if(currentVehicleId) params.set('vehicle_id', currentVehicleId);
+      if(q) params.set('q', q);
+      let list = [];
+      try{ list = await api('/api/entries?' + params.toString()); } catch(e){ return; }
+      const tb = entriesTbody; tb.innerHTML = '';
+      list.forEach(e => {
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td>' + e.date + '</td>' +
+          '<td>' + (e.mileage?.toLocaleString?.("pl-PL") || "") + '</td>' +
+          '<td>' + e.service_type + '</td>' +
+          '<td>' + (e.description || "") + '</td>' +
+          '<td>' + Number(e.cost||0).toLocaleString("pl-PL",{minimumFractionDigits:2, maximumFractionDigits:2}) + '</td>' +
+          '<td>' + (e.attachment ? ('<a target=_blank href="/uploads/' + e.attachment + '">plik</a>') : '') + '</td>' +
+          '<td class="actions">' +
+            '<button onclick=\'editEntry(' + e.id + ',' + JSON.stringify(e).replace(/`/g,"\\`") + ')\'>Edytuj</button> ' +
+            '<button onclick="delEntry(' + e.id + ')">Usuń</button>' +
+          '</td>';
         tb.appendChild(tr);
       });
       await loadStats();
     }
 
+    // Statystyki (linia dzienna)
     async function loadStats(){
       try{
-        const s=await api('/api/stats'); const range=parseInt(document.getElementById('dash_range')?.value||'0',10);
-        let byDay=s.by_day||[];
-        if(range>0&&byDay.length>0){ const cut=new Date(); cut.setDate(cut.getDate()-range+1);
-          byDay=byDay.filter(x=>{const d=new Date((x.ymd||'')+'T00:00:00'); return !isNaN(d)&&d>=cut;}); }
-        byDay.sort((a,b)=> (a.ymd<b.ymd?-1:1));
-        const labels=byDay.map(x=>x.ymd), costs=byDay.map(x=>Number(x.total_cost||0));
-        const ctx=document.getElementById('chartCost')?.getContext('2d');
-        if(ctx){ if(window._chartCost) window._chartCost.destroy();
-          window._chartCost=new Chart(ctx,{type:'line',data:{labels,datasets:[{label:'Koszt (PLN) / dzień',data:costs,tension:.25,fill:false}]},
-            options:{responsive:true,interaction:{mode:'index',intersect:false},
-              scales:{x:{grid:{color:'#222'},ticks:{color:'#f3f4f6'}},y:{grid:{color:'#222'},ticks:{color:'#f3f4f6'}}},
-              plugins:{legend:{labels:{color:'#f3f4f6'}}}}); }
-        const tb=document.getElementById('mileageTbody'); if(tb){ tb.innerHTML='';
-          (s.last_mileage||[]).forEach(r=>{const tr=document.createElement('tr'); tr.innerHTML='<td>'+(r.label||'-')+'</td><td>'+Number(r.mileage||0).toLocaleString('pl-PL')+'</td>'; tb.appendChild(tr);}); }
+        const s = await api('/api/stats');
+        const range = parseInt(document.getElementById('dash_range')?.value || '0', 10);
+        let byDay = s.by_day || [];
+        if(range > 0 && byDay.length > 0){
+          const cut = new Date(); cut.setDate(cut.getDate() - range + 1);
+          byDay = byDay.filter(x => { const d = new Date((x.ymd||'') + 'T00:00:00'); return !isNaN(d) && d >= cut; });
+        }
+        byDay.sort((a,b)=> (a.ymd < b.ymd ? -1 : 1));
+        const labels = byDay.map(x => x.ymd), costs = byDay.map(x => Number(x.total_cost||0));
+        const ctx = document.getElementById('chartCost')?.getContext('2d');
+        if(ctx){
+          if(window._chartCost) window._chartCost.destroy();
+          window._chartCost = new Chart(ctx, {
+            type:'line',
+            data:{ labels, datasets:[{ label:'Koszt (PLN) / dzień', data:costs, tension:.25, fill:false }]},
+            options:{ responsive:true, interaction:{ mode:'index', intersect:false },
+              scales:{ x:{ grid:{color:'#222'}, ticks:{color:'#f3f4f6'} }, y:{ grid:{color:'#222'}, ticks:{color:'#f3f4f6'} } },
+              plugins:{ legend:{ labels:{ color:'#f3f4f6' } } }
+            }
+          });
+        }
+        const tb = document.getElementById('mileageTbody');
+        if(tb){
+          tb.innerHTML = '';
+          (s.last_mileage || []).forEach(r => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td>' + (r.label || '-') + '</td><td>' + Number(r.mileage||0).toLocaleString('pl-PL') + '</td>';
+            tb.appendChild(tr);
+          });
+        }
       }catch(e){}
     }
 
+    // Przypomnienia
     async function loadReminders(){
-      try{ const list=await api('/api/reminders'); const tb=document.getElementById('r_tbody'); if(!tb) return; tb.innerHTML='';
-        list.forEach(r=>{
-          const tr=document.createElement('tr'); const due=r.is_due?'🔔':'';
-          tr.innerHTML = '<td>'+due+'</td><td>'+r.title+'</td><td>'+(r.due_date||'')+'</td><td>'+(r.due_mileage||'')+'</td>'
-                       + '<td>'+(r.notify_email?'tak':'nie')+'</td><td>'+(r.notify_before_days??'')+'</td>'
-                       + '<td>'+(r.vehicle_id||'')+'</td>'
-                       + '<td class=actions><button onclick="completeReminder('+r.id+')">Zakończ</button> <button onclick="deleteReminder('+r.id+')">Usuń</button></td>';
+      try{
+        const list = await api('/api/reminders');
+        const tb = document.getElementById('r_tbody'); if(!tb) return; tb.innerHTML = '';
+        list.forEach(r => {
+          const tr = document.createElement('tr');
+          const due = r.is_due ? '🔔' : '';
+          tr.innerHTML =
+            '<td>' + due + '</td><td>' + r.title + '</td><td>' + (r.due_date||'') + '</td><td>' + (r.due_mileage||'') + '</td>' +
+            '<td>' + (r.notify_email ? 'tak' : 'nie') + '</td><td>' + (r.notify_before_days ?? '') + '</td>' +
+            '<td>' + (r.vehicle_id || '') + '</td>' +
+            '<td class="actions"><button onclick="completeReminder(' + r.id + ')">Zakończ</button> <button onclick="deleteReminder(' + r.id + ')">Usuń</button></td>';
           tb.appendChild(tr);
         });
       }catch(e){}
     }
     async function loadReminderVehicles(){
-      try{ const list=await api('/api/vehicles'); const rsel=document.getElementById('r_vehicle'); if(!rsel) return; rsel.innerHTML='<option value=\"\">—</option>';
-        list.forEach(v=>{const o=document.createElement('option'); o.value=v.id; o.textContent=(v.make+' '+v.model+' '+(v.year||'')+' '+(v.reg_plate||'')).trim(); rsel.appendChild(o);});
+      try{
+        const list = await api('/api/vehicles');
+        const rsel = document.getElementById('r_vehicle'); if(!rsel) return;
+        rsel.innerHTML = '<option value="">—</option>';
+        list.forEach(v => {
+          const o = document.createElement('option');
+          o.value = v.id;
+          o.textContent = (v.make + ' ' + v.model + ' ' + (v.year||'') + ' ' + (v.reg_plate||'')).trim();
+          rsel.appendChild(o);
+        });
       }catch(e){}
     }
     async function addReminder(){
-      const selType=document.getElementById('r_type'); const custom=document.getElementById('r_type_custom');
-      const typeVal = selType && selType.value==='Inne' ? (custom.value||'').trim() : (selType?selType.value:'');
+      const selType = document.getElementById('r_type');
+      const custom = document.getElementById('r_type_custom');
+      const typeVal = selType && selType.value === 'Inne' ? (custom.value||'').trim() : (selType ? selType.value : '');
       if(!typeVal) return alert('Wybierz rodzaj lub wpisz własny powód.');
-      const body={ title:typeVal, due_date:r_date.value||null, due_mileage:r_mileage.value||null, vehicle_id:r_vehicle.value||null,
-                   notify_email:document.getElementById('r_notify_mail').checked,
-                   notify_before_days:parseInt(r_notify_days.value||'')||null };
-      await api('/api/reminders',{method:'POST',body:JSON.stringify(body),headers:{'Content-Type':'application/json'}});
+      const body = {
+        title: typeVal,
+        due_date: r_date.value || null,
+        due_mileage: r_mileage.value || null,
+        vehicle_id: r_vehicle.value || null,
+        notify_email: document.getElementById('r_notify_mail').checked,
+        notify_before_days: parseInt(r_notify_days.value || '') || null
+      };
+      await api('/api/reminders', { method:'POST', body: JSON.stringify(body), headers:{'Content-Type':'application/json'} });
       toast('Dodano przypomnienie');
-      if(selType) selType.value='Przegląd techniczny'; if(custom) custom.value=''; r_date.value=''; r_mileage.value='';
-      document.getElementById('r_type_custom_wrap').style.display='none'; document.getElementById('r_notify_mail').checked=false; r_notify_days.value='';
+      if(selType) selType.value='Przegląd techniczny'; if(custom) custom.value='';
+      r_date.value=''; r_mileage.value='';
+      document.getElementById('r_type_custom_wrap').style.display='none';
+      document.getElementById('r_notify_mail').checked=false;
+      r_notify_days.value='';
       await loadReminders();
     }
-    async function completeReminder(id){ await api('/api/reminders/'+id,{method:'PUT',body:JSON.stringify({completed_at:new Date().toISOString()}),headers:{'Content-Type':'application/json'}}); await loadReminders(); }
-    async function deleteReminder(id){ await api('/api/reminders/'+id,{method:'DELETE'}); await loadReminders(); }
+    async function completeReminder(id){ await api('/api/reminders/' + id, { method:'PUT', body: JSON.stringify({ completed_at: new Date().toISOString() }), headers:{'Content-Type':'application/json'} }); await loadReminders(); }
+    async function deleteReminder(id){ await api('/api/reminders/' + id, { method:'DELETE' }); await loadReminders(); }
+
+    // Wystaw wszystkie funkcje globalnie, żeby onclick="..." działał
+    Object.assign(window, {
+      register, login, logout,
+      loadVehicles, addVehicle, deleteSelectedVehicle,
+      addEntry, refreshEntries, delEntry, editEntry,
+      loadStats, loadReminders, loadReminderVehicles,
+      addReminder, completeReminder, deleteReminder,
+      toast
+    });
   </script>
 </body>
 </html>
 """
+
 
 @app.get("/")
 def index_page():
