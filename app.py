@@ -728,7 +728,6 @@ INDEX_HTML = """
   <title>{APP_TITLE}</title>
 
   <script>
-    // Helper fetch z ładnymi błędami
     async function api(path, opts = {}) {
       const res = await fetch(path, Object.assign({ headers: {} }, opts));
       const ct = res.headers.get('content-type') || '';
@@ -747,14 +746,15 @@ INDEX_HTML = """
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <style>
-    :root { --bg:#0a0a0a; --bg2:#1a0000; --card:#141414; --text:#f3f4f6; --muted:#9ca3af; --border:#262626; --accent:#ff3232; --accent-600:#cc2727; --r:14px; --pad:14px; --gap:18px; --sh:0 10px 28px rgba(0,0,0,.7) }
+    :root { --bg:#0a0a0a; --bg2:#1a0000; --card:#141414; --text:#f3f4f6; --muted:#9ca3af; --border:#262626;
+            --accent:#ff3232; --accent-600:#cc2727; --amber:#f59e0b; --r:14px; --pad:14px; --gap:18px; --sh:0 10px 28px rgba(0,0,0,.7) }
     * { box-sizing:border-box }
     body { margin:0; background:linear-gradient(180deg,var(--bg),var(--bg2)); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial }
-    header { position:sticky; top:0; z-index:20; background:#0f0f0f; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:var(--gap); padding:var(--pad) calc(var(--pad)*1.5) }
+    header { position:sticky; top:0; z-index:20; background:#0f0f0f; border-bottom:1px solid var(--border);
+             display:flex; align-items:center; gap:var(--gap); padding:var(--pad) calc(var(--pad)*1.5) }
     .brand { display:flex; align-items:center; gap:10px; font-weight:800 }
     .brand svg { width:28px; height:28px }
-    .topbar { position:sticky; top:56px; z-index:15; background:#111; border-bottom:1px solid var(--border); padding:10px calc(var(--pad)*1.5); display:flex; gap:10px; align-items:center; flex-wrap:wrap }
-    .pill { padding:8px 10px; border:1px solid var(--border); border-radius:10px; background:#0f0f0f }
+    .hello { font-size:13px; color:var(--muted); }
     main { padding:calc(var(--pad)*1.5); display:grid; grid-template-columns:minmax(360px,420px) 1fr; gap:var(--gap); align-items:start }
     .card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:var(--pad); box-shadow:var(--sh) }
     h3 { margin:0 0 10px }
@@ -764,26 +764,25 @@ INDEX_HTML = """
     button { padding:10px 14px; border:1px solid var(--border); background:#0f0f0f; color:#f3f4f6; border-radius:10px; cursor:pointer }
     button.primary { background:var(--accent); border-color:var(--accent); color:#fff }
     button.primary:hover { background:var(--accent-600) }
+    button.cta { background:var(--amber); color:#111; border-color:#a16207 }
     a { color:#ff7b7b; text-decoration:none }
     a:hover { text-decoration:underline }
     .row { display:grid; grid-template-columns:1fr 1fr; gap:var(--gap) }
-    .row-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:var(--gap) }
-    @media (max-width:1100px) {
-      main { grid-template-columns:1fr }
-      .row, .row-3 { grid-template-columns:1fr }
-    }
+    @media (max-width:1100px) { main { grid-template-columns:1fr } .row { grid-template-columns:1fr } }
     table { width:100%; border-collapse:collapse; background:#0f0f0f; border:1px solid var(--border); border-radius:var(--r); overflow:hidden }
     thead th { background:#1f1f1f; color:#ff9c9c }
     th, td { padding:12px; border-bottom:1px solid var(--border); text-align:left; font-size:14px }
     .actions { display:flex; gap:8px; flex-wrap:wrap }
     .muted { color:var(--muted) }
     .toast { position:fixed; right:16px; bottom:16px; background:var(--accent); color:#fff; padding:10px 14px; border-radius:10px; display:none; box-shadow:var(--sh) }
-    canvas { background:radial-gradient(ellipse at top,#151515,#0d0d0d); border:1px solid var(--border); border-radius:12px; padding:8px; max-height:260px }
-    .section-dashboard { margin:0 calc(var(--pad)*1.5) calc(var(--pad)*1.5); max-height:560px; overflow:auto }
-
+    canvas { background:radial-gradient(ellipse at top,#151515,#0d0d0d); border:1px solid var(--border); border-radius:12px; padding:8px; max-height:320px }
+    .stats-wrap { display:grid; grid-template-columns: 2fr 1fr; gap:var(--gap); }
+    @media (max-width:1100px) { .stats-wrap { grid-template-columns: 1fr } }
+    .pill { padding:8px 10px; border:1px solid var(--border); border-radius:10px; background:#0f0f0f; width:auto; max-width:340px }
+    .tooltray { display:flex; gap:8px; flex-wrap:wrap; align-items:center }
     /* MODAL */
     .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.65); display:none; align-items:center; justify-content:center; z-index:50; }
-    .modal { width:min(440px, 92vw); background:#141414; border:1px solid var(--border); border-radius:14px; padding:18px; box-shadow:0 20px 60px rgba(0,0,0,.6) }
+    .modal { width:min(720px, 94vw); background:#141414; border:1px solid var(--border); border-radius:14px; padding:18px; box-shadow:0 20px 60px rgba(0,0,0,.6) }
     .modal header { position:static; background:transparent; border:0; padding:0 0 8px; display:flex; justify-content:space-between; align-items:center }
   </style>
 </head>
@@ -798,21 +797,15 @@ INDEX_HTML = """
       </svg>
       <span>{APP_TITLE}</span>
     </div>
-    <div style="margin-left:auto; display:flex; gap:10px; align-items:center;">
-      <span id="userName" class="muted"></span>
-      <button type="button" id="authBtn" onclick="openAuthModal()">Zaloguj / Zarejestruj</button>
+    <div style="margin-left:auto; display:flex; gap:12px; align-items:center;">
+      <span id="helloUser" class="hello"></span>
+      <button type="button" id="authBtn" class="cta" onclick="openAuthModal()">Zaloguj / Zarejestruj</button>
       <button type="button" id="logoutBtn" style="display:none" onclick="logout()">Wyloguj</button>
     </div>
   </header>
 
-  <!-- Górny pasek: aktualny pojazd -->
-  <div class="topbar">
-    <strong>Aktualny pojazd:</strong>
-    <select id="vehicleSelect" class="pill" onchange="refreshEntries()"></select>
-    <span class="muted" style="font-size:12px">Na ten pojazd zapisują się wpisy i przypomnienia</span>
-  </div>
-
   <main>
+    <!-- Kolumna boczna -->
     <section class="card">
       <h3>Pojazdy</h3>
       <div>
@@ -850,7 +843,7 @@ INDEX_HTML = """
       </div>
 
       <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
-        <button type="button" onclick="deleteSelectedVehicle()">Usuń wybrany pojazd</button>
+        <button type="button" onclick="deleteSelectedVehicle()">Usuń wybrany</button>
         <a href="/api/export/csv" onclick="if(!window.loggedIn){ alert('Najpierw zaloguj się.'); return false; }">Eksport CSV</a>
         <label class="muted" style="font-size:12px;">
           Import CSV: <input id="importCsv" type="file" accept=".csv" style="width:auto;display:inline" onchange="importCsvFile(event)">
@@ -858,31 +851,23 @@ INDEX_HTML = """
       </div>
 
       <hr style="border-color:#262626; margin:16px 0;">
-      <h3>Harmonogram serwisów okresowych</h3>
-      <div class="row">
-        <div><label>Pojazd (opcjonalnie)</label><select id="s_vehicle"></select></div>
-        <div><label>Rodzaj (np. Wymiana oleju)</label><input id="s_kind" placeholder="Wymiana oleju"></div>
-      </div>
-      <div class="row">
-        <div><label>Co ile miesięcy</label><input id="s_interval_m" type="number" placeholder="np. 12"></div>
-        <div><label>Co ile km</label><input id="s_interval_km" type="number" placeholder="np. 15000"></div>
-      </div>
-      <div class="row">
-        <div><label>Ostatni serwis — data</label><input id="s_last_date" type="date"></div>
-        <div><label>Ostatni serwis — przebieg</label><input id="s_last_mil" type="number"></div>
-      </div>
-      <div style="margin-top:8px;"><button type="button" class="primary" onclick="addSchedule()">Dodaj harmonogram</button></div>
-      <div style="margin-top:12px; overflow:auto;">
-        <table>
-          <thead><tr><th>Rodzaj</th><th>Interwał</th><th>Następny termin</th><th>Pojazd</th><th></th></tr></thead>
-          <tbody id="s_tbody"></tbody>
-        </table>
+      <div class="tooltray">
+        <button type="button" onclick="openReminders()">🔔 Przypomnienia</button>
+        <button type="button" onclick="openSchedules()">🛠️ Harmonogram</button>
       </div>
     </section>
 
+    <!-- Główna kolumna -->
     <section class="card">
-      <h3>Wpisy serwisowe</h3>
-      <div class="row">
+      <div class="tooltray" style="justify-content:space-between;">
+        <h3 style="margin:0;">Wpisy serwisowe</h3>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <span class="muted" style="font-size:12px;">Aktualny pojazd:</span>
+          <select id="vehicleSelect" class="pill" onchange="refreshEntries()"></select>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:10px;">
         <div><label>Data</label><input id="date" type="date"></div>
         <div><label>Przebieg (km)</label><input id="mileage" type="number"></div>
       </div>
@@ -905,9 +890,74 @@ INDEX_HTML = """
           <tbody id="entriesTbody"></tbody>
         </table>
       </div>
+    </section>
+  </main>
 
-      <hr style="border-color:#262626; margin:16px 0;">
-      <h3>Przypomnienia</h3>
+  <!-- STATYSTYKI -->
+  <section class="card" style="margin:0 calc(var(--pad)*1.5) calc(var(--pad)*1.5);">
+    <div class="tooltray" style="justify-content:space-between;">
+      <h3 style="margin:0;">📊 Statystyki</h3>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <label style="margin:0;align-self:center;">Zakres dni:</label>
+        <select id="dash_range" onchange="loadStats()" style="max-width:220px;">
+          <option value="7">Ostatnie 7 dni</option>
+          <option value="30" selected>Ostatnie 30 dni</option>
+          <option value="90">Ostatnie 90 dni</option>
+          <option value="0">Wszystko</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="stats-wrap" style="margin-top:10px;">
+      <div>
+        <h4 style="margin:0 0 8px">Koszty dziennie</h4>
+        <canvas id="chartCost"></canvas>
+      </div>
+      <div>
+        <h4 style="margin:0 0 8px">Suma kosztów auta</h4>
+        <table>
+          <thead><tr><th>Pojazd</th><th>Suma (PLN)</th></tr></thead>
+          <tbody id="sumByVehicleTbody"></tbody>
+          <tfoot><tr><th style="text-align:right;">Suma wszystkich</th><th id="sumAll">0,00</th></tr></tfoot>
+        </table>
+        <div style="margin-top:12px;">
+          <h4 style="margin:0 0 8px">Ostatnie przebiegi</h4>
+          <table>
+            <thead><tr><th>Pojazd</th><th>Ostatni przebieg</th></tr></thead>
+            <tbody id="mileageTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MODAL: Auth -->
+  <div id="authModal" class="modal-backdrop" onclick="backdropClose(event)">
+    <div class="modal" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
+      <header>
+        <h3>Zaloguj się / Zarejestruj</h3>
+        <button onclick="closeAuthModal()">✕</button>
+      </header>
+      <div class="row">
+        <div><label>Email</label><input id="regEmail" placeholder="uzytkownik@domena.pl"></div>
+        <div><label>Imię</label><input id="regName" placeholder="Jan Kowalski"></div>
+      </div>
+      <label>Hasło</label><input id="regPass" type="password" placeholder="********">
+      <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+        <button type="button" class="primary" onclick="register()">Rejestracja</button>
+        <button type="button" onclick="login()">Logowanie</button>
+      </div>
+      <p class="muted" style="font-size:12px; margin-top:8px;">Zarejestruj konto albo zaloguj się aby zarządzać pojazdami.</p>
+    </div>
+  </div>
+
+  <!-- MODAL: Przypomnienia -->
+  <div id="remindersModal" class="modal-backdrop" onclick="backdropClose(event)">
+    <div class="modal" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
+      <header>
+        <h3>🔔 Przypomnienia</h3>
+        <button onclick="closeReminders()">✕</button>
+      </header>
       <div class="row">
         <div>
           <label>Rodzaj</label>
@@ -940,52 +990,35 @@ INDEX_HTML = """
           <tbody id="r_tbody"></tbody>
         </table>
       </div>
-    </section>
-  </main>
+    </div>
+  </div>
 
-  <section class="card section-dashboard">
-    <h3>📊 Dashboard</h3>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 14px;">
-      <label style="margin:0;align-self:center;">Zakres dni:</label>
-      <select id="dash_range" onchange="loadStats()" style="max-width:220px;">
-        <option value="7">Ostatnie 7 dni</option>
-        <option value="30" selected>Ostatnie 30 dni</option>
-        <option value="90">Ostatnie 90 dni</option>
-        <option value="0">Wszystko</option>
-      </select>
-    </div>
-    <div>
-      <h4 style="margin:0 0 8px">Koszty dziennie</h4>
-      <!-- BAR CHART zamiast liniowego -->
-      <canvas id="chartCost"></canvas>
-    </div>
-    <div style="margin-top:20px;">
-      <h4 style="margin:0 0 8px">Ostatnie przebiegi</h4>
-      <table>
-        <thead><tr><th>Pojazd</th><th>Ostatni przebieg</th></tr></thead>
-        <tbody id="mileageTbody"></tbody>
-      </table>
-      <div id="tcoBox" class="muted" style="margin-top:8px;font-size:13px;"></div>
-    </div>
-  </section>
-
-  <!-- MODAL: Auth -->
-  <div id="authModal" class="modal-backdrop" onclick="backdropClose(event)">
+  <!-- MODAL: Harmonogram -->
+  <div id="schedulesModal" class="modal-backdrop" onclick="backdropClose(event)">
     <div class="modal" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
       <header>
-        <h3>Zaloguj się / Zarejestruj</h3>
-        <button onclick="closeAuthModal()">✕</button>
+        <h3>🛠️ Harmonogram serwisów okresowych</h3>
+        <button onclick="closeSchedules()">✕</button>
       </header>
       <div class="row">
-        <div><label>Email</label><input id="regEmail" placeholder="uzytkownik@domena.pl"></div>
-        <div><label>Imię</label><input id="regName" placeholder="Jan Kowalski"></div>
+        <div><label>Pojazd (opcjonalnie)</label><select id="s_vehicle"></select></div>
+        <div><label>Rodzaj (np. Wymiana oleju)</label><input id="s_kind" placeholder="Wymiana oleju"></div>
       </div>
-      <label>Hasło</label><input id="regPass" type="password" placeholder="********">
-      <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
-        <button type="button" class="primary" onclick="register()">Rejestracja</button>
-        <button type="button" onclick="login()">Logowanie</button>
+      <div class="row">
+        <div><label>Co ile miesięcy</label><input id="s_interval_m" type="number" placeholder="np. 12"></div>
+        <div><label>Co ile km</label><input id="s_interval_km" type="number" placeholder="np. 15000"></div>
       </div>
-      <p class="muted" style="font-size:12px; margin-top:8px;">Zarejestruj konto albo zaloguj się aby zarządzać pojazdami.</p>
+      <div class="row">
+        <div><label>Ostatni serwis — data</label><input id="s_last_date" type="date"></div>
+        <div><label>Ostatni serwis — przebieg</label><input id="s_last_mil" type="number"></div>
+      </div>
+      <div style="margin-top:8px;"><button type="button" class="primary" onclick="addSchedule()">Dodaj harmonogram</button></div>
+      <div style="margin-top:12px; overflow:auto;">
+        <table>
+          <thead><tr><th>Rodzaj</th><th>Interwał</th><th>Następny termin</th><th>Pojazd</th><th></th></tr></thead>
+          <tbody id="s_tbody"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -995,13 +1028,18 @@ INDEX_HTML = """
     const $ = (id) => document.getElementById(id);
     window.loggedIn = false;
     window._entriesCache = [];
+    let currentUserName = '';
 
-    // ====== Modal Auth ======
+    // ====== Modal helpers ======
     function openAuthModal(){ $('authModal').style.display = 'flex'; }
     function closeAuthModal(){ $('authModal').style.display = 'none'; }
-    function backdropClose(e){ if(e.target.id==='authModal') closeAuthModal(); }
+    function openReminders(){ $('remindersModal').style.display = 'flex'; loadReminders(); loadReminderVehicles(); }
+    function closeReminders(){ $('remindersModal').style.display = 'none'; }
+    function openSchedules(){ $('schedulesModal').style.display = 'flex'; loadSchedules(); }
+    function closeSchedules(){ $('schedulesModal').style.display = 'none'; }
+    function backdropClose(e){ if(e.target.classList.contains('modal-backdrop')) e.target.style.display='none'; }
 
-    // ====== Marka/Model (więcej marek + sportowe) ======
+    // ====== Marka/Model (rozszerzona baza) ======
     const CAR_DATA = {
       "Audi": ["A1","A3","S3","RS3","A4","S4","RS4","A5","S5","RS5","A6","S6","RS6","A7","S7","RS7","A8","Q2","Q3","RSQ3","Q5","SQ5","Q7","SQ7","Q8","SQ8","RSQ8","TT","TTS","TTRS","e-tron","e-tron GT","RS e-tron GT"],
       "BMW": ["1 Series","M135i","2 Series","M240i","3 Series","M3","4 Series","M4","5 Series","M5","7 Series","X1","X3","X3 M","X5","X5 M","X6","X6 M","X7","i3","i4","i5","i7","iX"],
@@ -1039,13 +1077,7 @@ INDEX_HTML = """
       "Tesla": ["Model 3","Model Y","Model S","Model X"],
       "Smart": ["fortwo","forfour","#1"],
       "Mitsubishi": ["Space Star","ASX","Eclipse Cross","Outlander","L200"],
-      "Jeep": ["Renegade","Compass","Cherokee","Grand Cherokee","Wrangler"],
-      "Aston Martin": ["Vantage","DB11","DB12","DBS","Vanquish"],
-      "Maserati": ["Ghibli","Quattroporte","Levante","MC20","GranTurismo"],
-      "Alpine": ["A110"],
-      "Ferrari": ["Roma","Portofino","296 GTB","F8 Tributo","SF90 Stradale","812 Superfast"],
-      "Lamborghini": ["Huracán","Aventador","Revuelto","Urus"],
-      "McLaren": ["540C","570S","600LT","650S","720S","765LT","Artura","GT"]
+      "Jeep": ["Renegade","Compass","Cherokee","Grand Cherokee","Wrangler"]
     };
     const OTHER_MAKE = "Inna marka…";
     const OTHER_MODEL = "Inny model…";
@@ -1085,26 +1117,20 @@ INDEX_HTML = """
       model = (modelSel.value === OTHER_MODEL) ? (modelCustom.value||'').trim() : (modelSel.value||'');
       return { make, model };
     }
-
-    // Lata (od bieżącego do 1980)
     function populateYears() {
       const y = $('year'); if(!y) return;
       const now = new Date().getFullYear();
-      y.innerHTML = '<option value=\"\">— wybierz rok —</option>';
+      y.innerHTML = '<option value="">— wybierz rok —</option>';
       for(let yy=now; yy>=1980; yy--) {
         const o = document.createElement('option'); o.value=yy; o.textContent=yy; y.appendChild(o);
       }
     }
-
-    // Nr rej.: tylko wielkie litery i cyfry
-    function enforcePlate(el){
-      el.value = (el.value || '').toUpperCase().replace(/[^A-Z0-9]/g,'');
-    }
+    function enforcePlate(el){ el.value = (el.value || '').toUpperCase().replace(/[^A-Z0-9]/g,''); }
 
     // ====== TOAST ======
     function toast(msg){ const t = $('toast'); t.textContent = msg || '✓ Zapisano'; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 1600); }
 
-    // ====== KONTO (modal) ======
+    // ====== KONTO ======
     async function register(){
       const email = $('regEmail').value || '', name = $('regName').value || '', pass = $('regPass').value || '';
       if(!email || !name || !pass) return alert('Uzupełnij e-mail, imię i hasło.');
@@ -1114,8 +1140,10 @@ INDEX_HTML = """
     async function login(){
       try {
         const res = await api('/api/login', { method:'POST', body: JSON.stringify({ email: $('regEmail').value, password: $('regPass').value }), headers:{'Content-Type':'application/json'} });
-        $('userName').textContent = res.user.name; window.loggedIn = true;
+        currentUserName = res.user.name || '';
+        $('helloUser').textContent = currentUserName ? ('Cześć, ' + currentUserName) : 'Zalogowano';
         $('authBtn').style.display='none'; $('logoutBtn').style.display='inline-block'; closeAuthModal();
+        window.loggedIn = true;
         await loadVehicles(); await loadReminderVehicles(); await refreshEntries(); await loadStats(); await loadReminders(); await loadSchedules();
         populateYears();
       } catch(e) { alert('Błędne dane logowania.'); }
@@ -1126,7 +1154,7 @@ INDEX_HTML = """
     async function loadVehicles(){
       const list = await api('/api/vehicles');
       const sel = $('vehicleSelect'), rsel = $('r_vehicle'), ssel = $('s_vehicle');
-      sel.innerHTML=''; if(rsel) rsel.innerHTML='<option value=\"\">—</option>'; if(ssel) ssel.innerHTML='<option value=\"\">—</option>';
+      sel.innerHTML=''; if(rsel) rsel.innerHTML='<option value="">—</option>'; if(ssel) ssel.innerHTML='<option value="">—</option>';
       list.forEach(v => {
         const label = (v.make + ' ' + v.model + ' ' + (v.year||'') + (v.fuel?(' • '+v.fuel):'') + ' ' + (v.reg_plate||'')).trim();
         const o = document.createElement('option'); o.value = v.id; o.textContent = label; sel.appendChild(o);
@@ -1215,10 +1243,34 @@ INDEX_HTML = """
       ev.target.value = '';
     }
 
-    // ====== STATYSTYKI: BAR chart ======
+    // ====== STATYSTYKI ======
+    // prosty plugin Chart.js: etykiety z wartościami na słupkach
+    const BarValueLabels = {
+      id: 'barValueLabels',
+      afterDatasetsDraw(chart, args, pluginOptions) {
+        const {ctx} = chart;
+        ctx.save();
+        const ds = chart.getDatasetMeta(0);
+        ds.data.forEach((bar, i) => {
+          const val = chart.data.datasets[0].data[i];
+          if (val == null) return;
+          const label = Number(val).toLocaleString('pl-PL', {minimumFractionDigits:2, maximumFractionDigits:2});
+          ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+          ctx.fillStyle = '#f3f4f6';
+          ctx.textAlign = 'center';
+          ctx.fillText(label, bar.x, bar.y - 6);
+        });
+        ctx.restore();
+      }
+    };
+
     async function loadStats(){
       try{
-        const s = await api('/api/stats');
+        const s = await api('/api/stats'); // by_day (all), last_mileage, tco (zostawiamy total_cost)
+        // do sum per vehicle użyjemy wpisów:
+        const allEntries = await api('/api/entries'); // wszystkie wpisy b. użytkownika
+
+        // Filtr zakresu dni dla wykresu:
         const range = parseInt(($('dash_range')?.value || '0'), 10);
         let byDay = s.by_day || [];
         if(range > 0 && byDay.length > 0){
@@ -1226,30 +1278,62 @@ INDEX_HTML = """
           byDay = byDay.filter(x => { const d = new Date((x.ymd||'') + 'T00:00:00'); return !isNaN(d) && d >= cut; });
         }
         byDay.sort((a,b)=> (a.ymd < b.ymd ? -1 : 1));
-        const labels = byDay.map(x => x.ymd), costs = byDay.map(x => Number(x.total_cost||0));
+        const labels = byDay.map(x => x.ymd);
+
+        // kolory słupków dopasowane do motywu (ciemny czerwony gradient)
         const ctx = $('chartCost')?.getContext('2d');
+        let dataVals = byDay.map(x => Number(x.total_cost||0));
         if(ctx){
+          const grad = ctx.createLinearGradient(0, 0, 0, 200);
+          grad.addColorStop(0, '#ff3b3b');
+          grad.addColorStop(1, '#7f1d1d');
+
           if(window._chartCost) window._chartCost.destroy();
           window._chartCost = new Chart(ctx, {
             type:'bar',
-            data:{ labels, datasets:[{ label:'Koszt (PLN) / dzień', data:costs }]},
+            data:{ labels, datasets:[{ label:'Koszt (PLN) / dzień', data:dataVals, backgroundColor:grad, borderColor:'#cc2727', borderWidth:1 }]},
             options:{ responsive:true, interaction:{ mode:'index', intersect:false },
               scales:{ x:{ grid:{color:'#222'}, ticks:{color:'#f3f4f6', maxRotation:0, autoSkip:true} }, y:{ grid:{color:'#222'}, ticks:{color:'#f3f4f6'} } },
-              plugins:{ legend:{ labels:{ color:'#f3f4f6' } } }
-            }
+              plugins:{ legend:{ labels:{ color:'#f3f4f6' } }, tooltip:{ callbacks:{ label:(c)=> ' ' + Number(c.raw||0).toLocaleString('pl-PL',{minimumFractionDigits:2, maximumFractionDigits:2}) + ' PLN' } } }
+            },
+            plugins:[BarValueLabels]
           });
         }
+
+        // Suma kosztów per pojazd
+        const sumsByVehicle = {};
+        const labelsByVehicle = {};
+        // potrzebujemy mapy id->etykiety: pobierz listę pojazdów
+        const vehicles = await api('/api/vehicles');
+        vehicles.forEach(v => {
+          const label = (v.make + ' ' + v.model + ' ' + (v.year||'') + (v.reg_plate?(' • '+v.reg_plate):'')).trim();
+          labelsByVehicle[v.id] = label || ('Pojazd #' + v.id);
+          sumsByVehicle[v.id] = 0;
+        });
+        (allEntries||[]).forEach(e => {
+          if(e.cost != null && labelsByVehicle[e.vehicle_id]) {
+            sumsByVehicle[e.vehicle_id] += Number(e.cost||0);
+          }
+        });
+        // render tabela
+        const tBody = $('sumByVehicleTbody'); tBody.innerHTML = '';
+        let grand = 0;
+        Object.keys(sumsByVehicle).forEach(vid => {
+          const sum = sumsByVehicle[vid] || 0;
+          grand += sum;
+          const tr = document.createElement('tr');
+          tr.innerHTML = '<td>'+ (labelsByVehicle[vid]||('Pojazd #'+vid)) +'</td><td>'+ sum.toLocaleString('pl-PL',{minimumFractionDigits:2, maximumFractionDigits:2}) +'</td>';
+          tBody.appendChild(tr);
+        });
+        $('sumAll').textContent = grand.toLocaleString('pl-PL',{minimumFractionDigits:2, maximumFractionDigits:2});
+
+        // Ostatnie przebiegi
         const tb = $('mileageTbody'); if(tb){ tb.innerHTML=''; (s.last_mileage||[]).forEach(r => {
           const tr = document.createElement('tr');
           tr.innerHTML = '<td>'+(r.label||'-')+'</td><td>'+Number(r.mileage||0).toLocaleString('pl-PL')+'</td>';
           tb.appendChild(tr);
         })}
-        const tco = s.tco || {};
-        $('tcoBox').innerHTML = 'TCO: ' +
-          'suma ' + (tco.total_cost||0).toLocaleString('pl-PL',{minimumFractionDigits:2, maximumFractionDigits:2}) + ' PLN' +
-          (tco.km? (', koszt/km ~ ' + (tco.cost_per_km||0).toFixed(2) + ' PLN') : '') +
-          (tco.months? (', koszt/mies. ~ ' + (tco.cost_per_month||0).toFixed(2) + ' PLN') : '');
-      }catch(e){}
+      }catch(e){ console.error(e); }
     }
 
     // ====== PRZYPOMNIENIA ======
@@ -1272,7 +1356,7 @@ INDEX_HTML = """
     async function loadReminderVehicles(){
       try{
         const list = await api('/api/vehicles'); const rsel = $('r_vehicle'); if(!rsel) return;
-        rsel.innerHTML = '<option value=\"\">—</option>';
+        rsel.innerHTML = '<option value="">—</option>';
         list.forEach(v => { const o = document.createElement('option'); o.value = v.id; o.textContent = (v.make+' '+v.model+' '+(v.year||'')+' '+(v.reg_plate||'')).trim(); rsel.appendChild(o); });
       }catch(e){}
     }
@@ -1324,11 +1408,12 @@ INDEX_HTML = """
     }
     async function deleteSchedule(id){ await api('/api/schedules/' + id, { method:'DELETE' }); await loadSchedules(); }
 
-    // Init selects (marki, lata)
+    // Init
     document.addEventListener('DOMContentLoaded', () => { populateMakes(); populateYears(); });
-    // Eksport do window (onclick w HTML)
+
+    // Export global
     Object.assign(window, {
-      openAuthModal, closeAuthModal, backdropClose,
+      openAuthModal, closeAuthModal, openReminders, closeReminders, openSchedules, closeSchedules, backdropClose,
       register, login, logout,
       loadVehicles, addVehicle, deleteSelectedVehicle,
       addEntry, refreshEntries, delEntry, editEntry,
